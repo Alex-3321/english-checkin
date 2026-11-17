@@ -154,6 +154,9 @@ db.exec(`
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uniq_image_md5 ON records(image_md5) WHERE image_md5 IS NOT NULL");
   } catch (e) { console.error('[migrate] image_md5 唯一索引失败:', e.message); }
 
+  const ucols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  if (!ucols.includes('is_hidden')) db.exec('ALTER TABLE users ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0');
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS appeals (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -259,7 +262,7 @@ function cookies(req) {
   }
   return out;
 }
-const PUBLIC_COLS = 'id, student_id, name, class_name, total_score, avatar, is_public, role, created_at';
+const PUBLIC_COLS = 'id, student_id, name, class_name, total_score, avatar, is_public, is_hidden, role, created_at';
 function currentUser(req) {
   const p = verify(cookies(req).sid);
   if (!p || !p.iat) return null;
@@ -576,7 +579,7 @@ async function handleApi(req, res, url) {
              SUM(CASE r.type WHEN 'checkin' THEN 1 ELSE 0 END) AS checkin_days,
              SUM(CASE r.type WHEN 'upload' THEN 1 ELSE 0 END) AS upload_days
       FROM users u LEFT JOIN records r ON r.user_id=u.id AND r.created_at>=? AND r.deleted_at IS NULL
-      WHERE u.role='student'
+      WHERE u.role='student' AND COALESCE(u.is_hidden,0)=0
       GROUP BY u.id ORDER BY score DESC, u.total_score DESC, u.created_at ASC`).all(seasonCutoff());
     /* 历史平均打卡时间：用真实点击时间戳（北京时间 HH:mm）求平均，早起者更早 */
     const acc = new Map();
@@ -614,7 +617,7 @@ async function handleApi(req, res, url) {
     if (!q) return sendJSON(res, 200, { items: [] });
     const rows = db.prepare(`
       SELECT id, student_id, name, class_name, avatar FROM users
-      WHERE role='student' AND (student_id LIKE ? OR name LIKE ?) AND id<>?
+      WHERE role='student' AND COALESCE(is_hidden,0)=0 AND (student_id LIKE ? OR name LIKE ?) AND id<>?
       ORDER BY name LIMIT 20`).all(`%${q}%`, `%${q}%`, me.id);
     return sendJSON(res, 200, { items: rows });
   }
@@ -625,6 +628,8 @@ async function handleApi(req, res, url) {
     const id = Number(mProfile[1]);
     const u = db.prepare(`SELECT ${PUBLIC_COLS} FROM users WHERE id=?`).get(id);
     if (!u) return sendJSON(res, 404, { error: '用户不存在' });
+    /* 幽灵号：对普通用户表现为「查无此人」 */
+    if (u.is_hidden && id !== me.id && !isAdmin) return sendJSON(res, 404, { error: '用户不存在' });
     const canSee = id === me.id || isAdmin || u.is_public === 1;
     const photos = canSee
       ? db.prepare(`SELECT r.id, r.image_path, r.created_at, r.level, r.points,
@@ -715,7 +720,7 @@ async function handleApi(req, res, url) {
     const b = JSON.parse((await readBody(req)).toString() || '{}');
     const fid = Number(b.friend_id);
     if (!fid || fid === me.id) return sendJSON(res, 400, { error: '参数错误' });
-    const u = db.prepare("SELECT id FROM users WHERE id=? AND role='student'").get(fid);
+    const u = db.prepare("SELECT id FROM users WHERE id=? AND role='student' AND COALESCE(is_hidden,0)=0").get(fid);
     if (!u) return sendJSON(res, 404, { error: '用户不存在' });
     const ts = nowCN();
     db.prepare('INSERT OR IGNORE INTO friends (user_id,friend_id,created_at) VALUES (?,?,?)').run(me.id, fid, ts);
@@ -833,7 +838,7 @@ async function handleApi(req, res, url) {
 
     if (p === '/api/admin/overview' && method === 'GET') {
       const users = db.prepare(`
-        SELECT u.id,u.student_id,u.name,u.class_name,u.total_score,u.is_public,u.avatar,u.created_at,
+        SELECT u.id,u.student_id,u.name,u.class_name,u.total_score,u.is_public,u.is_hidden,u.avatar,u.created_at,
                (SELECT COUNT(*) FROM records r WHERE r.user_id=u.id) AS records,
                (SELECT COUNT(*) FROM records r WHERE r.user_id=u.id AND r.type='upload' AND r.created_at>=?) AS season_uploads
         FROM users u WHERE u.role='student' ORDER BY u.total_score DESC`).all(seasonCutoff());
