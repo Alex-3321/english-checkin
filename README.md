@@ -63,7 +63,15 @@
 - **好友 / 聊天**：好友申请带红点，聊天页极简气泡
 - **管理后台**：数据总览、用户表格、照片软删除、CSV 导出
 
-> 截图待补充。设计基调：`#1A362D` 墨绿 / `#F3F0E7` 米白 / `#B9923F` 淡金，直角、细线、杂志式排版。
+<p align="center">
+  <img src="docs/screenshots/01-checkin.jpg" width="24%" alt="打卡主页">
+  <img src="docs/screenshots/02-leaderboard.jpg" width="24%" alt="排行榜">
+  <img src="docs/screenshots/03-friends.jpg" width="24%" alt="好友">
+  <img src="docs/screenshots/04-profile.jpg" width="24%" alt="个人主页">
+</p>
+
+> 截图中的姓名、班级、学号与头像均已打码处理。
+> 设计基调：`#1A362D` 墨绿 / `#F3F0E7` 米白 / `#B9923F` 淡金，直角、细线、杂志式排版。
 
 ## 快速开始
 
