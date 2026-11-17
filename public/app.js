@@ -28,6 +28,13 @@ function avatarHtml(u, cls = '') {
   const ch = u && u.name ? u.name.slice(-2) : '?';
   return `<span class="avatar ${cls} avatar-text">${esc(ch)}</span>`;
 }
+function fmtDateTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 function fmtTime(iso) {
   const d = new Date(iso);
   return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(d);
@@ -309,6 +316,7 @@ async function afterLogin() {
   $('#tabs').hidden = false;
   $('.nav-admin').hidden = state.me.role !== 'super_admin';
   updateBadge();
+  updateAdminBadge();
   checkNotifications();
   location.hash = state.me.role === 'super_admin' ? '#/admin' : '#/home';
   await router();
@@ -499,6 +507,7 @@ async function loadMe() {
   const prof = await api(`/api/users/${d.user.id}`);
   renderAlbum($('#myAlbum'), prof.photos, $('#myAlbumEmpty'), '还没有打卡照片，今天就开始吧。', d.user.id);
   $('#albumCount').textContent = `${prof.photos.length} 张`;
+  loadMyAppeals().catch(() => {});
 }
 
 function renderAlbum(box, photos, emptyEl, emptyText, ownerId) {
@@ -848,6 +857,7 @@ async function loadAdmin() {
   if (input) input.value = d.site_title || SITE_TITLE || '';
 
   loadAppeals();
+  updateAdminBadge();
 
   const box = $('#adminTable');
   box.innerHTML = '';
@@ -884,10 +894,16 @@ async function loadAppeals() {
     row.className = 'appeal-item';
     row.dataset.appeal = a.id;
     row.innerHTML = `
-      <div class="appeal-thumb" style="background-image:url('${a.image}')" data-img="${a.image}"></div>
+      <div class="appeal-thumb" style="background-image:url('${a.image}')" data-img="${a.image}" title="点击查看大图"></div>
       <div class="appeal-main">
-        <div class="appeal-title">${esc(a.name)} · ${esc(a.class_name)} · 当前 ${esc(a.level || '未评级')} 级</div>
-        <div class="appeal-reason">${esc(a.reason)}</div>
+        <div class="appeal-title">
+          <strong>${esc(a.name)}</strong>
+          <span class="board-meta">${esc(a.class_name)}</span>
+          <span class="appeal-lv">原评级 ${esc(a.level || '—')} 级 · ${a.points ?? 0} 分</span>
+        </div>
+        <div class="appeal-reason">申诉理由：${esc(a.reason)}</div>
+        <div class="appeal-ai"><b>🤖 AI 复核意见：</b>${esc(a.ai_explain || '（无）')}</div>
+        <div class="appeal-time">申诉时间：${fmtDateTime(a.created_at)}</div>
       </div>
       <div class="appeal-acts">
         <button class="btn btn-line" data-lv="A">改判 A</button>
@@ -896,67 +912,109 @@ async function loadAppeals() {
         <button class="btn btn-danger" data-lv="INVALID">判无效</button>
       </div>`;
     const thumb = row.querySelector('.appeal-thumb');
-    if (thumb) {
-      thumb.style.cursor = 'zoom-in';
-      thumb.title = '点击查看大图';
-      thumb.addEventListener('click', (e) => { e.stopPropagation(); openLightbox(thumb.dataset.img); });
-    }
-
-    row.querySelectorAll('[data-lv]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const lv = btn.dataset.lv;
-        if (!confirm(`确认将这条记录改为 ${lv} 级？积分会相应补发或扣除。`)) return;
-        btn.disabled = true;
-        try {
-          const r = await api(`/api/admin/appeals/${a.id}`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ level: lv }),
-          });
-          toast(`已改判 ${r.level} 级，积分变动 ${r.delta > 0 ? '+' : ''}${r.delta}`);
-          await loadAppeals();
-          await loadAdmin();
-        } catch (e) { toast(e.message, true); btn.disabled = false; }
-      });
-    });
+    thumb.style.cursor = 'zoom-in';
+    thumb.addEventListener('click', (e) => { e.stopPropagation(); openLightbox(thumb.dataset.img); });
     box.appendChild(row);
   });
 }
 
 
-/* 申诉改判：事件委托（列表重渲染也不会失效） */
-document.addEventListener('click', async (e) => {
+/* 申诉终审：先弹窗填回复，再提交 */
+let pendingAppeal = null;
+
+document.addEventListener('click', (e) => {
   const btn = e.target.closest('#appealList [data-lv]');
   if (!btn || btn.disabled) return;
   e.preventDefault();
-  const lv = btn.dataset.lv;
   const appealId = btn.closest('[data-appeal]')?.dataset.appeal;
   if (!appealId) return;
+  pendingAppeal = { id: appealId, level: btn.dataset.lv };
+  $('#replyLevel').textContent = btn.dataset.lv === 'INVALID' ? '无效' : btn.dataset.lv;
+  $('#replyHint').textContent = btn.dataset.lv === 'INVALID'
+    ? '请填写判定无效的原因（必填，用户可见）；提交后记录与照片删除、积分扣回。'
+    : '请填写管理员回复 / 改判原因（必填，用户可见）';
+  $('#replyText').value = '';
+  $('#replyModal').hidden = false;
+  $('#replyText').focus();
+});
 
-  const label = btn.textContent;
-  const ok = await askConfirm(
-    lv === 'INVALID'
-      ? '确认判定该条打卡无效？记录与照片会被删除，对应积分将被扣除。'
-      : `确认将该条记录改为 ${lv} 级？积分会按新等级重新结算。`,
-    lv === 'INVALID' ? '判定无效' : '确认改判'
-  );
-  if (!ok) return;
+$('#replyCancel').addEventListener('click', () => { $('#replyModal').hidden = true; pendingAppeal = null; });
+$('#replyModal').addEventListener('click', (e) => {
+  if (e.target.id === 'replyModal') { $('#replyModal').hidden = true; pendingAppeal = null; }
+});
 
+$('#replySubmit').addEventListener('click', async () => {
+  if (!pendingAppeal) return;
+  const reply = $('#replyText').value.trim();
+  if (!reply) { toast('请填写回复内容', true); return; }
+  const btn = $('#replySubmit');
   btn.disabled = true;
-  btn.textContent = '处理中…';
+  btn.textContent = '提交中…';
   try {
-    const r = await api(`/api/admin/appeals/${appealId}`, {
+    await api(`/api/admin/appeals/${pendingAppeal.id}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ level: lv }),
+      body: JSON.stringify({ level: pendingAppeal.level, reply }),
     });
-    toast('改判成功，积分已重新结算！');
+    $('#replyModal').hidden = true;
+    pendingAppeal = null;
+    toast('终审完成，积分已重新结算！');
     await loadAdmin();
+    updateAdminBadge();
   } catch (err) {
     toast(err.message, true);
   } finally {
     btn.disabled = false;
-    btn.textContent = label;
+    btn.textContent = '提交终审';
   }
 });
+
+async function updateAdminBadge() {
+  const el = $('#adminBadge');
+  if (!el || !state.me || state.me.role !== 'super_admin') return;
+  try {
+    const d = await api('/api/admin/appeals/count');
+    el.hidden = !d.pending;
+    el.textContent = d.pending > 99 ? '99+' : String(d.pending);
+  } catch { /* 忽略 */ }
+}
+
+/* 用户端：我的申诉 */
+async function loadMyAppeals() {
+  const box = $('#myAppeals');
+  if (!box) return;
+  const d = await api('/api/appeals');
+  box.innerHTML = '';
+  $('#myAppealCount').textContent = d.items.length ? `${d.items.length} 条` : '';
+  if (!d.items.length) { $('#myAppealsEmpty').hidden = false; return; }
+  $('#myAppealsEmpty').hidden = true;
+
+  d.items.forEach((a) => {
+    const row = document.createElement('div');
+    row.className = 'appeal-item';
+    const statusText = a.status === 'pending' ? '待人工处理' : '已处理';
+    const result = a.status === 'pending' ? '' :
+      `<div class="appeal-reply"><b>处理结果：</b>${a.result_level === 'INVALID' ? '判定无效（记录已删除）' : `改判为 ${esc(a.result_level)} 级`}` +
+      `${a.admin_reply ? `<br><b>管理员回复：</b>${esc(a.admin_reply)}` : ''}</div>`;
+    row.innerHTML = `
+      <div class="appeal-thumb" style="background-image:url('${a.image || ''}')" data-img="${a.image || ''}"></div>
+      <div class="appeal-main">
+        <div class="appeal-title">
+          <span class="appeal-status ${a.status}">${statusText}</span>
+          <span class="appeal-lv">原评级 ${esc(a.orig_level || '—')} 级</span>
+        </div>
+        <div class="appeal-reason">申诉理由：${esc(a.reason)}</div>
+        <div class="appeal-ai"><b>🤖 AI 复核意见：</b>${esc(a.ai_explain || '（无）')}</div>
+        ${result}
+        <div class="appeal-time">申诉时间：${fmtDateTime(a.created_at)}${a.handled_at ? ' · 处理于 ' + fmtDateTime(a.handled_at) : ''}</div>
+      </div>`;
+    if (a.image) {
+      const th = row.querySelector('.appeal-thumb');
+      th.style.cursor = 'zoom-in';
+      th.addEventListener('click', () => openLightbox(a.image));
+    }
+    box.appendChild(row);
+  });
+}
 
 async function openAdminUser(id) {
   state.adminUserId = id;

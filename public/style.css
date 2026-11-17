@@ -749,3 +749,25 @@ body > * { position: relative; z-index: 1; }
   display: inline-block; width: 6px; height: 6px; margin-left: 6px;
   border-radius: 50%; background: #C0392B; vertical-align: middle;
 }
+
+/* ---------- 申诉详情（后台/用户端通用） ---------- */
+.appeal-item { align-items: flex-start; }
+.appeal-thumb { width: 72px; height: 72px; }
+.appeal-title { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.appeal-lv {
+  font-size: 10.5px; letter-spacing: .1em; padding: 1px 6px;
+  border: 1px solid var(--line-strong); color: var(--ink);
+}
+.appeal-time { font-size: 11px; color: var(--faint); letter-spacing: .06em; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.appeal-ai {
+  margin-top: 8px; padding: 10px 12px; border-left: 2px solid var(--gold);
+  background: rgba(185,146,63,.07); font-size: 13px; line-height: 1.65;
+}
+.appeal-ai b { color: var(--gold); font-weight: 600; letter-spacing: .04em; }
+.appeal-reply {
+  margin-top: 8px; padding: 10px 12px; border-left: 2px solid var(--ink);
+  background: rgba(26,54,45,.05); font-size: 13px; line-height: 1.65;
+}
+.appeal-status { font-size: 10.5px; letter-spacing: .12em; padding: 2px 8px; border: 1px solid var(--line-strong); }
+.appeal-status.pending { color: #B45309; border-color: #B45309; }
+.appeal-status.resolved { color: var(--ink); border-color: var(--ink); }

@@ -20,7 +20,7 @@
     <button class="nav-item" data-route="rank">排行</button>
     <button class="nav-item" data-route="friends">好友<span class="nav-badge" id="reqBadge" hidden></span></button>
     <button class="nav-item" data-route="me">我的</button>
-    <button class="nav-item nav-admin" data-route="admin" hidden>后台</button>
+    <button class="nav-item nav-admin" data-route="admin" hidden>后台<span class="nav-badge" id="adminBadge" hidden></span></button>
     <button class="nav-item nav-quit" id="logoutBtn">退出</button>
   </nav>
 </header>
@@ -206,6 +206,10 @@
     </div>
     <div class="album" id="myAlbum"></div>
     <p class="empty" id="myAlbumEmpty" hidden>还没有打卡照片，今天就开始吧。</p>
+
+    <div class="section-head"><h3>我的申诉</h3><span class="sub" id="myAppealCount"></span></div>
+    <div id="myAppeals" class="appeal-list"></div>
+    <p class="empty" id="myAppealsEmpty" hidden>还没有提交过申诉。</p>
   </section>
 
   <!-- 他人主页 -->
@@ -359,6 +363,19 @@
     <div class="confirm-actions">
       <button type="button" class="btn btn-line" id="appealCancel">取消</button>
       <button type="button" class="btn btn-primary" id="appealSubmit">提交申诉</button>
+    </div>
+  </div>
+</div>
+
+<!-- 管理员终审回复 -->
+<div class="confirm" id="replyModal" hidden>
+  <div class="confirm-box">
+    <p class="confirm-title">终审：<span id="replyLevel">A</span> 级</p>
+    <p class="confirm-text" id="replyHint">请填写管理员回复 / 改判原因（必填，用户可见）</p>
+    <textarea class="field-input req-textarea" id="replyText" rows="4" maxlength="300" placeholder="例如：图片确为完整手写笔记，经复核改判 A 级。"></textarea>
+    <div class="confirm-actions">
+      <button type="button" class="btn btn-line" id="replyCancel">取消</button>
+      <button type="button" class="btn btn-primary" id="replySubmit">提交终审</button>
     </div>
   </div>
 </div>

@@ -154,6 +154,14 @@ db.exec(`
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uniq_image_md5 ON records(image_md5) WHERE image_md5 IS NOT NULL");
   } catch (e) { console.error('[migrate] image_md5 唯一索引失败:', e.message); }
 
+  const acols = db.prepare('PRAGMA table_info(appeals)').all().map((c) => c.name);
+  if (acols.length) {
+    if (!acols.includes('ai_explain')) db.exec('ALTER TABLE appeals ADD COLUMN ai_explain TEXT');
+    if (!acols.includes('admin_reply')) db.exec('ALTER TABLE appeals ADD COLUMN admin_reply TEXT');
+    if (!acols.includes('orig_level')) db.exec('ALTER TABLE appeals ADD COLUMN orig_level TEXT');
+    db.exec("UPDATE appeals SET orig_level = (SELECT level FROM records r WHERE r.id = appeals.record_id) WHERE orig_level IS NULL");
+  }
+
   const ucols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   if (!ucols.includes('is_hidden')) db.exec('ALTER TABLE users ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0');
 
@@ -167,6 +175,9 @@ db.exec(`
       result_level TEXT,
       created_at   TEXT NOT NULL,
       handled_at   TEXT,
+      ai_explain   TEXT,
+      admin_reply  TEXT,
+      orig_level   TEXT,
       FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE,
       FOREIGN KEY (user_id)   REFERENCES users(id)   ON DELETE CASCADE
     );
@@ -680,17 +691,44 @@ async function handleApi(req, res, url) {
     const reason = String(b.reason || '').trim();
     if (!reason) return sendJSON(res, 400, { error: '请填写申诉理由' });
     if (reason.length > 200) return sendJSON(res, 400, { error: '申诉理由不超过 200 字' });
-    const rec = db.prepare('SELECT id,user_id,type FROM records WHERE id=?').get(rid);
+    const rec = db.prepare('SELECT id,user_id,type,level,image_path FROM records WHERE id=?').get(rid);
     if (!rec || rec.type !== 'upload') return sendJSON(res, 404, { error: '记录不存在' });
     if (rec.user_id !== me.id && !isAdmin) return sendJSON(res, 403, { error: '无权申诉' });
+    if (db.prepare("SELECT 1 FROM appeals WHERE record_id=? AND status='pending'").get(rid))
+      return sendJSON(res, 409, { error: '该记录已有待处理申诉' });
+
+    /* AI 复核前置：拿到一段解释文字（失败不影响申诉） */
+    let explain = '';
     try {
-      db.prepare('INSERT INTO appeals (record_id,user_id,reason,status,created_at) VALUES (?,?,?,?,?)')
-        .run(rid, me.id, reason, 'pending', nowCN());
+      const buf = fs.readFileSync(path.join(UPLOAD_DIR, rec.image_path));
+      const mime = rec.image_path.endsWith('.png') ? 'image/png' : 'image/jpeg';
+      explain = await aiQueue.run(() => aiGrader.reviewAppeal(buf, mime, rec.level || 'B', reason));
     } catch (e) {
-      if (/UNIQUE/i.test(e.message)) return sendJSON(res, 409, { error: '该记录已有待处理申诉' });
-      throw e;
+      console.error('[appeal] AI 复核失败:', e.message);
+      explain = '（AI 复核暂不可用，已直接转人工处理）';
     }
-    return sendJSON(res, 200, { ok: true });
+
+    db.prepare('INSERT INTO appeals (record_id,user_id,reason,status,created_at,ai_explain,orig_level) VALUES (?,?,?,?,?,?,?)')
+      .run(rid, me.id, reason, 'pending', nowCN(), explain, rec.level || null);
+    return sendJSON(res, 200, { ok: true, ai_explain: explain });
+  }
+
+  /* 我的申诉记录 */
+  if (p === '/api/appeals' && method === 'GET') {
+    const rows = db.prepare(`
+      SELECT a.id,a.reason,a.status,a.result_level,a.ai_explain,a.admin_reply,a.created_at,a.handled_at,
+             a.orig_level, r.level AS cur_level, r.points AS orig_points, r.image_path
+      FROM appeals a JOIN records r ON r.id=a.record_id
+      WHERE a.user_id=? ORDER BY a.id DESC LIMIT 50`).all(me.id);
+    return sendJSON(res, 200, {
+      items: rows.map((x) => ({
+        id: x.id, reason: x.reason, status: x.status, result_level: x.result_level,
+        ai_explain: x.ai_explain, admin_reply: x.admin_reply,
+        created_at: x.created_at, handled_at: x.handled_at,
+        orig_level: x.orig_level, orig_points: x.orig_points,
+        image: x.image_path ? `/uploads/${x.image_path}` : null,
+      })),
+    });
   }
 
   /* 点赞 */
@@ -889,9 +927,14 @@ async function handleApi(req, res, url) {
       return sendJSON(res, 200, { title: siteTitle(), default: DEFAULT_SITE_TITLE });
     }
 
+    if (p === '/api/admin/appeals/count' && method === 'GET') {
+      const c = db.prepare("SELECT COUNT(*) c FROM appeals WHERE status='pending'").get().c;
+      return sendJSON(res, 200, { pending: c });
+    }
+
     if (p === '/api/admin/appeals' && method === 'GET') {
       const rows = db.prepare(`
-        SELECT a.id, a.reason, a.status, a.created_at, a.record_id,
+        SELECT a.id, a.reason, a.status, a.created_at, a.record_id, a.ai_explain, a.admin_reply,
                r.level, r.points, r.image_path,
                u.id AS user_id, u.name, u.student_id, u.class_name
         FROM appeals a
@@ -910,7 +953,10 @@ async function handleApi(req, res, url) {
       const aid = Number(mAppealResolve[1]);
       const b = JSON.parse((await readBody(req)).toString() || '{}');
       const level = String(b.level || '').toUpperCase();
+      const reply = String(b.reply || '').trim();
       if (!['A', 'B', 'C', 'INVALID'].includes(level)) return sendJSON(res, 400, { error: '等级必须是 A/B/C/INVALID' });
+      if (!reply) return sendJSON(res, 400, { error: '请填写管理员回复/改判原因' });
+      if (reply.length > 300) return sendJSON(res, 400, { error: '回复不超过 300 字' });
       const appeal = db.prepare('SELECT * FROM appeals WHERE id=?').get(aid);
       if (!appeal || appeal.status !== 'pending') return sendJSON(res, 404, { error: '申诉不存在或已处理' });
       const rec = db.prepare('SELECT * FROM records WHERE id=?').get(appeal.record_id);
@@ -926,8 +972,8 @@ async function handleApi(req, res, url) {
         if (delta !== 0) {
           db.prepare('UPDATE users SET total_score = MAX(total_score + ?, 0) WHERE id=?').run(delta, rec.user_id);
         }
-        db.prepare("UPDATE appeals SET status='resolved', result_level='INVALID', handled_at=? WHERE id=?").run(nowCN(), aid);
-        return sendJSON(res, 200, { ok: true, level: 'INVALID', points: 0, delta, deleted: true });
+        db.prepare("UPDATE appeals SET status='resolved', result_level='INVALID', admin_reply=?, handled_at=? WHERE id=?").run(reply, nowCN(), aid);
+        return sendJSON(res, 200, { ok: true, level: 'INVALID', points: 0, delta, deleted: true, reply });
       }
 
       const newPts = aiGrader.POINTS[level] || 0;
@@ -937,8 +983,8 @@ async function handleApi(req, res, url) {
       if (delta !== 0) {
         db.prepare('UPDATE users SET total_score = MAX(total_score + ?, 0) WHERE id=?').run(delta, rec.user_id);
       }
-      db.prepare("UPDATE appeals SET status='resolved', result_level=?, handled_at=? WHERE id=?").run(level, nowCN(), aid);
-      return sendJSON(res, 200, { ok: true, level, points: newPts, delta });
+      db.prepare("UPDATE appeals SET status='resolved', result_level=?, admin_reply=?, handled_at=? WHERE id=?").run(level, reply, nowCN(), aid);
+      return sendJSON(res, 200, { ok: true, level, points: newPts, delta, reply });
     }
 
     if (p === '/api/admin/notifications' && method === 'POST') {
