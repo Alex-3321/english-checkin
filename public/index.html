@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1A362D">
+<title>英语打卡 · English Check-in</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="#/home">
+    <span class="brand-en">ENGLISH</span>
+    <span class="brand-slash">/</span>
+    <span class="brand-cn">英语打卡</span>
+  </a>
+  <nav class="nav" id="tabs" hidden>
+    <button class="nav-item" data-route="home">打卡</button>
+    <button class="nav-item" data-route="rank">排行</button>
+    <button class="nav-item" data-route="friends">好友<span class="nav-badge" id="reqBadge" hidden></span></button>
+    <button class="nav-item" data-route="me">我的</button>
+    <button class="nav-item nav-admin" data-route="admin" hidden>后台</button>
+    <button class="nav-item nav-quit" id="logoutBtn">退出</button>
+  </nav>
+</header>
+
+<main class="shell">
+
+  <!-- 登录 / 注册 -->
+  <section id="view-auth" class="view" hidden>
+    <div class="auth-grid">
+      <div class="auth-intro">
+        <p class="kicker">DAILY PRACTICE</p>
+        <h1 class="display">每天一点英语，<br>积少成多。</h1>
+        <p class="lede">签到 +10 分，上传学习照片 +20 分。<br>本季积分按自然季度统计；总积分长期累计。</p>
+        <svg class="lineart" viewBox="0 0 320 200" fill="none" aria-hidden="true">
+          <path d="M20 150h280" stroke="currentColor" stroke-opacity=".25" stroke-width="1"/>
+          <path d="M40 150V70l60-30v110" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M100 150V40l80 26v84" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M180 150V66l70 28v56" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M258 62l30 18-12 14" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+      </div>
+
+      <div class="auth-panel">
+        <div class="switch" role="tablist">
+          <button class="switch-btn is-active" data-mode="login" role="tab">登录</button>
+          <button class="switch-btn" data-mode="register" role="tab">注册</button>
+        </div>
+
+        <form id="loginForm" class="form" autocomplete="off">
+          <label class="field">
+            <span class="field-label">学号</span>
+            <input class="field-input" name="student_id" inputmode="numeric" autocomplete="off" required placeholder="请输入学号">
+          </label>
+          <label class="field">
+            <span class="field-label">密码</span>
+            <span class="field-control">
+              <input class="field-input" name="password" type="password" autocomplete="new-password" required placeholder="请输入密码">
+              <button type="button" class="eye" data-eye aria-label="显示密码">
+                <svg viewBox="0 0 24 24" class="eye-open" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.6"/></svg>
+                <svg viewBox="0 0 24 24" class="eye-off" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3l18 18"/><path d="M10.6 6.2A9.9 9.9 0 0 1 12 6c6.4 0 10 6 10 6a17 17 0 0 1-2.8 3.4M6.4 7.5A17 17 0 0 0 2 12s3.6 6 10 6c1.2 0 2.3-.2 3.3-.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
+              </button>
+            </span>
+          </label>
+          <button class="btn btn-primary" type="submit">进入系统</button>
+        </form>
+
+        <form id="registerForm" class="form" autocomplete="off" hidden>
+          <label class="field">
+            <span class="field-label">学号</span>
+            <input class="field-input" name="student_id" inputmode="numeric" pattern="\d{8,12}" maxlength="12" autocomplete="off" required placeholder="8-12 位纯数字学号">
+          </label>
+          <label class="field">
+            <span class="field-label">姓名</span>
+            <input class="field-input" name="name" maxlength="16" autocomplete="off" required placeholder="请输入本人真实姓名">
+          </label>
+          <label class="field">
+            <span class="field-label">班级</span>
+            <input class="field-input" name="class_name" maxlength="32" autocomplete="off" required placeholder="例如：汽车制造与实验技术2班">
+          </label>
+          <label class="field">
+            <span class="field-label">设置密码</span>
+            <span class="field-control">
+              <input class="field-input" name="password" type="password" autocomplete="new-password" minlength="6" required placeholder="不能少于6位数">
+              <button type="button" class="eye" data-eye aria-label="显示密码">
+                <svg viewBox="0 0 24 24" class="eye-open" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.6"/></svg>
+                <svg viewBox="0 0 24 24" class="eye-off" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3l18 18"/><path d="M10.6 6.2A9.9 9.9 0 0 1 12 6c6.4 0 10 6 10 6a17 17 0 0 1-2.8 3.4M6.4 7.5A17 17 0 0 0 2 12s3.6 6 10 6c1.2 0 2.3-.2 3.3-.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
+              </button>
+            </span>
+          </label>
+          <label class="field">
+            <span class="field-label">确认密码</span>
+            <span class="field-control">
+              <input class="field-input" name="password2" type="password" autocomplete="new-password" minlength="6" required placeholder="请再次输入密码">
+              <button type="button" class="eye" data-eye aria-label="显示密码">
+                <svg viewBox="0 0 24 24" class="eye-open" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.6"/></svg>
+                <svg viewBox="0 0 24 24" class="eye-off" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3l18 18"/><path d="M10.6 6.2A9.9 9.9 0 0 1 12 6c6.4 0 10 6 10 6a17 17 0 0 1-2.8 3.4M6.4 7.5A17 17 0 0 0 2 12s3.6 6 10 6c1.2 0 2.3-.2 3.3-.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
+              </button>
+            </span>
+          </label>
+          <button class="btn btn-primary" type="submit">创建账号</button>
+        </form>
+
+        <p class="form-msg" id="authMsg"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 打卡主页 -->
+  <section id="view-home" class="view" hidden>
+    <div class="page-head">
+      <p class="kicker" id="homeKicker">TODAY</p>
+      <h2 class="display-sm" id="greeting">—</h2>
+      <p class="lede" id="userMeta">—</p>
+    </div>
+
+    <div class="score-board">
+      <div>
+        <div class="score-num" id="quarterScore">0</div>
+        <div class="score-cap">本季积分</div>
+      </div>
+      <div class="score-side">
+        <div class="score-total">总积分 <strong id="totalScore">0</strong></div>
+        <div class="score-sub" id="quarterLabel">—</div>
+      </div>
+    </div>
+
+    <div class="task-list">
+      <div class="task">
+        <div class="task-idx">01</div>
+        <div class="task-main">
+          <h3 class="task-title">每日签到</h3>
+          <p class="task-desc">向今天问好，+10 分</p>
+        </div>
+        <div class="task-act">
+          <span class="tag" id="checkinTag">未完成</span>
+          <button class="btn btn-line" id="checkinBtn">签到</button>
+        </div>
+      </div>
+
+      <div class="task">
+        <div class="task-idx">02</div>
+        <div class="task-main">
+          <h3 class="task-title">学习打卡</h3>
+          <p class="task-desc">上传一张学习照片，+20 分</p>
+        </div>
+        <div class="task-act">
+          <span class="tag" id="uploadTag">未完成</span>
+          <label class="btn btn-line" for="uploadInput" id="uploadLabel">上传</label>
+          <input type="file" id="uploadInput" accept="image/*" hidden>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 排行榜 -->
+  <section id="view-rank" class="view" hidden>
+    <div class="page-head">
+      <p class="kicker">LEADERBOARD</p>
+      <h2 class="display-sm">本季排行榜</h2>
+      <p class="lede" id="rankQuarter">—</p>
+    </div>
+    <ol class="board" id="rankList"></ol>
+    <p class="empty" id="rankEmpty" hidden>本季度还没有人上榜。</p>
+  </section>
+
+  <!-- 我的主页 -->
+  <section id="view-me" class="view" hidden>
+    <div class="profile-head">
+      <div class="avatar avatar-lg" id="meAvatar"></div>
+      <div class="profile-info">
+        <h2 class="display-sm" id="meName">—</h2>
+        <p class="lede" id="meMeta">—</p>
+        <div class="profile-stats" id="meStats"></div>
+      </div>
+    </div>
+
+    <div class="settings">
+      <label class="switch-row">
+        <span>
+          <strong>公开我的打卡记录</strong>
+          <small>关闭后，只有你自己和管理员能看到相册</small>
+        </span>
+        <input type="checkbox" id="privacyToggle" class="toggle">
+      </label>
+      <div class="settings-actions">
+        <label class="btn btn-line" for="avatarInput">更换头像</label>
+        <input type="file" id="avatarInput" accept="image/*" hidden>
+      </div>
+    </div>
+
+    <div class="section-head">
+      <h3>我的打卡相册</h3>
+      <span class="sub" id="albumCount"></span>
+    </div>
+    <div class="album" id="myAlbum"></div>
+    <p class="empty" id="myAlbumEmpty" hidden>还没有打卡照片，今天就开始吧。</p>
+  </section>
+
+  <!-- 他人主页 -->
+  <section id="view-user" class="view" hidden>
+    <button class="back" id="backFromUser">← 返回</button>
+    <div class="profile-head">
+      <div class="avatar avatar-lg" id="otherAvatar"></div>
+      <div class="profile-info">
+        <h2 class="display-sm" id="otherName">—</h2>
+        <p class="lede" id="otherMeta">—</p>
+        <div class="profile-stats" id="otherStats"></div>
+      </div>
+      <div class="profile-actions">
+        <button class="btn btn-line like-btn" id="likeBtn">
+          <span class="heart">♥</span> 点赞 <b id="likeCount">0</b>
+        </button>
+        <button class="btn btn-line" id="addFriendBtn">加为好友</button>
+        <button class="btn btn-line" id="msgBtn" hidden>发消息</button>
+      </div>
+    </div>
+    <div class="section-head">
+      <h3>打卡相册</h3>
+      <span class="sub" id="otherAlbumHint"></span>
+    </div>
+    <div class="album" id="otherAlbum"></div>
+    <p class="empty" id="otherAlbumEmpty" hidden>该用户未公开打卡记录。</p>
+  </section>
+
+  <!-- 好友 -->
+  <section id="view-friends" class="view" hidden>
+    <div class="page-head">
+      <p class="kicker">FRIENDS</p>
+      <h2 class="display-sm">好友</h2>
+    </div>
+
+    <div class="search-row">
+      <input class="field-input" id="searchInput" placeholder="搜索学号或姓名">
+      <button class="btn btn-line" id="searchBtn">搜索</button>
+    </div>
+    <div id="searchResults" class="search-results"></div>
+
+    <div class="section-head"><h3>好友申请</h3><span class="sub" id="reqCount"></span></div>
+    <div id="requestList" class="people"></div>
+    <p class="empty" id="requestEmpty" hidden>暂无待处理的好友申请。</p>
+
+    <div class="section-head"><h3>我的好友</h3></div>
+    <div id="friendsList" class="people"></div>
+    <p class="empty" id="friendsEmpty" hidden>还没有好友，搜索学号添加吧。</p>
+  </section>
+
+  <!-- 聊天 -->
+  <section id="view-chat" class="view" hidden>
+    <button class="back" id="backFromChat">← 返回</button>
+    <div class="chat-head">
+      <div class="avatar" id="chatAvatar"></div>
+      <strong id="chatName">—</strong>
+    </div>
+    <div class="chat-log" id="chatLog"></div>
+    <form class="chat-form" id="chatForm">
+      <input class="field-input" id="chatInput" placeholder="说点什么…" autocomplete="off" maxlength="1000">
+      <button class="btn btn-primary" type="submit">发送</button>
+    </form>
+  </section>
+
+  <!-- 管理后台 -->
+  <section id="view-admin" class="view" hidden>
+    <div class="page-head">
+      <p class="kicker">ADMIN CONSOLE</p>
+      <h2 class="display-sm">管理后台</h2>
+      <p class="lede" id="adminMeta">—</p>
+    </div>
+
+    <div class="admin-stats" id="adminStats"></div>
+
+    <div class="admin-actions">
+      <button class="btn btn-line" id="exportBtn">导出积分 CSV</button>
+      <button class="btn btn-danger" id="resetBtn">清空本季积分</button>
+    </div>
+
+    <div class="section-head"><h3>全部用户</h3></div>
+    <div class="admin-table" id="adminTable"></div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <span>ENGLISH CHECK-IN</span>
+  <span id="footDate"></span>
+</footer>
+
+<!-- 大图查看 -->
+
+<!-- 打卡二次确认 -->
+<div class="confirm" id="confirmModal" hidden>
+  <div class="confirm-box">
+    <p class="confirm-title">提交今日打卡</p>
+    <img class="confirm-preview" id="confirmPreview" alt="待提交照片">
+    <p class="confirm-text">⚠️ 注意：每日只能打卡一次，照片提交后将永久保存，不可删除或修改，请确认照片无误后再提交。</p>
+    <div class="confirm-actions">
+      <button type="button" class="btn btn-line" id="confirmCancel">取消</button>
+      <button type="button" class="btn btn-primary" id="confirmOk">确认提交</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- 好友申请 -->
+<div class="confirm" id="reqModal" hidden>
+  <div class="confirm-box">
+    <p class="confirm-title">好友申请</p>
+    <p class="confirm-text">请简单介绍一下自己（例如：我是2班的张三）</p>
+    <textarea class="field-input req-textarea" id="reqMessage" rows="3" maxlength="100" placeholder="请简单介绍一下自己（例如：我是2班的张三）"></textarea>
+    <div class="confirm-actions">
+      <button type="button" class="btn btn-line" id="reqCancel">取消</button>
+      <button type="button" class="btn btn-primary" id="reqSend">发送申请</button>
+    </div>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox" hidden>
+  <img id="lightboxImg" alt="">
+  <button class="lightbox-close" id="lightboxClose">关闭</button>
+</div>
+
+<!-- 顶部提示 -->
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <span class="toast-line"></span>
+  <span class="toast-text" id="toastText"></span>
+</div>
+
+<!-- 打卡仪式 -->
+<div class="ritual" id="ritual" hidden>
+  <div class="ritual-inner">
+    <div class="ritual-plus" id="ritualPlus">+10</div>
+    <div class="ritual-label" id="ritualLabel">签到成功</div>
+    <div class="ritual-rule"></div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

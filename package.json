@@ -1,0 +1,16 @@
+{
+  "name": "english-checkin",
+  "version": "1.0.0",
+  "description": "英语打卡系统：每日签到/打卡、积分排行、好友与私聊、管理员后台",
+  "main": "server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": ["checkin", "english", "express-less", "sqlite", "caddy"],
+  "license": "MIT"
+}

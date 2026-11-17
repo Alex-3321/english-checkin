@@ -1,0 +1,20 @@
+# 英语打卡系统 · Caddy 反向代理示例
+# 把 example.com 换成你的域名，Caddy 会自动申请并续期证书
+
+example.com {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:3000
+}
+
+www.example.com {
+	redir https://example.com{uri} permanent
+}

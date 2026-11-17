@@ -1,0 +1,39 @@
+# ---- 运行时数据（含真实用户数据，绝不能提交）----
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+uploads/*
+!uploads/.gitkeep
+
+# ---- 密钥与本地配置 ----
+.env
+.env.*
+!.env.example
+.secret
+*.pem
+*.key
+
+# ---- 依赖与构建产物 ----
+node_modules/
+dist/
+build/
+coverage/
+
+# ---- 日志与临时文件 ----
+*.log
+logs/
+npm-debug.log*
+yarn-error.log*
+tmp/
+.cache/
+
+# ---- 编辑器 / 系统 ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
