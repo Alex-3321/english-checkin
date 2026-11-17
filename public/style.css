@@ -492,3 +492,260 @@ body {
   background: #fff; color: var(--ink);
 }
 .req-actions { display: flex; gap: 8px; }
+
+/* =========================================================
+   v2.0 质感升级层
+   思路来源：open-props（令牌/流体排版/缓动）、shadcn/ui（变量分层）、
+   View Transitions API（页面切换）。全部手写，无外部依赖。
+   ========================================================= */
+
+:root {
+  /* 间距节奏：4 的倍数 */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+
+  /* 流体字号：小屏不挤，大屏不散 */
+  --fs-kicker: clamp(9.5px, 1.1vw, 11px);
+  --fs-body:   clamp(14.5px, 1.6vw, 16px);
+  --fs-lead:   clamp(13.5px, 1.5vw, 15px);
+  --fs-title:  clamp(20px, 3.4vw, 28px);
+  --fs-display:clamp(28px, 5vw, 44px);
+  --fs-score:  clamp(54px, 10vw, 86px);
+
+  /* 缓动曲线 */
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-soft: cubic-bezier(.4, 0, .2, 1);
+
+  /* 阴影层级 */
+  --shadow-1: 0 1px 2px rgba(26, 54, 45, .05);
+  --shadow-2: 0 6px 20px rgba(26, 54, 45, .07);
+  --shadow-3: 0 18px 44px rgba(26, 54, 45, .13);
+}
+
+/* 纸张颗粒：用 SVG 噪声，比纯色更有印刷质感 */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  opacity: .030;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+body > * { position: relative; z-index: 1; }
+
+/* ---------- 字体层级 ---------- */
+.display { font-size: var(--fs-display); letter-spacing: -.022em; line-height: 1.14; }
+.display-sm { font-size: var(--fs-title); letter-spacing: -.015em; }
+.lede { font-size: var(--fs-lead); line-height: 1.72; }
+.kicker { font-size: var(--fs-kicker); letter-spacing: .3em; }
+.score-num, .score-total strong, .board-score, .stat strong, #quarterScore { font-variant-numeric: tabular-nums lining-nums; }
+
+/* ---------- 卡片：细线 + 微高光 + 悬浮 ---------- */
+.card, .auth-panel, .score-board, .settings, .admin-detail {
+  box-shadow: var(--shadow-1), inset 0 1px 0 rgba(255, 255, 255, .6);
+  transition: box-shadow .35s var(--ease-soft), transform .35s var(--ease-soft), border-color .35s;
+}
+.card:hover, .score-board:hover { box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .7); }
+.score-board:hover { transform: translateY(-1px); }
+
+/* ---------- 按钮：抬升 / 按压 / 焦点环 ---------- */
+.btn { transition: background .22s var(--ease-soft), color .22s, border-color .22s, box-shadow .22s, transform .12s; }
+.btn:hover { box-shadow: var(--shadow-1); }
+.btn:active { transform: translateY(1px) scale(.995); box-shadow: none; }
+.btn-primary { box-shadow: 0 1px 0 rgba(255,255,255,.12) inset, var(--shadow-1); }
+.btn-primary:hover { box-shadow: 0 2px 12px rgba(26, 54, 45, .22); }
+
+:where(button, a, input, label.btn, textarea):focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: 0;
+}
+
+/* ---------- 输入框：下划线加粗 + 轻微底色 ---------- */
+.field-input { transition: border-color .22s var(--ease-soft), background .22s, box-shadow .22s; }
+.field-input:focus { background: rgba(185, 146, 63, .05); box-shadow: 0 1px 0 0 var(--gold); }
+
+/* ---------- 顶部导航：滑动下划线 ---------- */
+.nav-item { position: relative; border-bottom: 0; }
+.nav-item::after {
+  content: ''; position: absolute; left: 14px; right: 14px; bottom: 2px; height: 1px;
+  background: var(--gold); transform: scaleX(0); transform-origin: left;
+  transition: transform .3s var(--ease-out);
+}
+.nav-item.is-active::after { transform: scaleX(1); }
+.nav-item.is-active { color: var(--ink); }
+
+/* ---------- 列表入场（错峰） ---------- */
+.reveal {
+  opacity: 0; transform: translateY(10px);
+  transition: opacity .5s var(--ease-out), transform .5s var(--ease-out);
+  transition-delay: calc(var(--i, 0) * 45ms);
+}
+.reveal.is-in { opacity: 1; transform: none; }
+
+/* ---------- 骨架屏 ---------- */
+.skeleton { padding: 6px 0; }
+.skeleton-row {
+  height: 44px; margin: 10px 0;
+  background: linear-gradient(90deg, rgba(26,54,45,.055) 25%, rgba(26,54,45,.10) 37%, rgba(26,54,45,.055) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+/* ---------- 空状态 ---------- */
+.empty {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 42px 16px; color: var(--faint); font-size: 13px; letter-spacing: .04em;
+}
+.empty::before {
+  content: ''; width: 54px; height: 54px; opacity: .35;
+  background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none' stroke='%231A362D' stroke-width='1.4'%3E%3Crect x='10' y='14' width='44' height='38'/%3E%3Cpath d='M10 24h44M20 14V8M44 14V8'/%3E%3Cpath d='M22 36h20M22 44h12'/%3E%3C/svg%3E");
+}
+
+/* ---------- 大图：淡入缩放 ---------- */
+.lightbox { animation: lbIn .25s var(--ease-out) both; backdrop-filter: blur(6px); }
+@keyframes lbIn { from { opacity: 0; } to { opacity: 1; } }
+.lightbox img { animation: lbZoom .3s var(--ease-out) both; }
+@keyframes lbZoom { from { transform: scale(.96); opacity: .6; } to { transform: none; opacity: 1; } }
+
+/* ---------- 打卡仪式：金色扩散环 ---------- */
+.ritual-inner { position: relative; }
+.ritual-inner::after {
+  content: ''; position: absolute; left: 50%; top: 34%; width: 120px; height: 120px;
+  margin: -60px 0 0 -60px; border: 1px solid var(--gold); border-radius: 50%;
+  opacity: 0; animation: ring .9s var(--ease-out) both;
+}
+@keyframes ring {
+  0% { transform: scale(.4); opacity: .8; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+/* ---------- 页面切换（View Transitions） ---------- */
+@view-transition { navigation: auto; }
+::view-transition-old(root) { animation: vtOut .18s ease both; }
+::view-transition-new(root) { animation: vtIn .26s var(--ease-out) both; }
+@keyframes vtOut { to { opacity: 0; } }
+@keyframes vtIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .skeleton-row { animation: none; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+}
+
+/* ---------- 站点标题（可配置） ---------- */
+.site-banner { padding: 4px 0 18px; margin-bottom: 18px; }
+.site-title {
+  margin: 0;
+  word-spacing: .38em;   /* 「朗英 英语协会」中间的呼吸感 */
+  font-size: clamp(26px, 6.4vw, 46px);
+  line-height: 1.16;
+  font-weight: 700;
+  letter-spacing: .015em;
+  color: var(--ink);
+}
+.site-rule { width: 52px; height: 2px; background: var(--gold); margin: 14px 0 10px; }
+.site-tagline { margin: 0; font-size: 10px; letter-spacing: .3em; color: var(--faint); text-transform: uppercase; }
+
+/* 后台标题编辑 */
+.site-editor {
+  margin: 18px 0 8px; padding: 16px 18px;
+  border: 1px solid var(--line); background: var(--paper-3);
+  box-shadow: var(--shadow-1), inset 0 1px 0 rgba(255,255,255,.6);
+}
+.site-editor-row { display: flex; gap: 10px; align-items: flex-end; margin-top: 8px; }
+.site-editor-row .field-input { flex: 1; }
+.site-editor .hint { margin-top: 8px; }
+
+@media (max-width: 760px) {
+  .site-banner { padding-bottom: 14px; }
+  .site-title { letter-spacing: .01em; }
+}
+
+/* ---------- 业务日提示 ---------- */
+.reset-note {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-left: 2px solid var(--gold);
+  background: rgba(185, 146, 63, .07);
+  color: var(--ink);
+  font-size: 12.5px;
+  letter-spacing: .04em;
+  line-height: 1.6;
+}
+.reset-note.is-closed {
+  border-left-color: #B45309;
+  background: rgba(180, 83, 9, .08);
+}
+
+/* ---------- AI 评卷结果卡 ---------- */
+.task-hint { margin: 6px 0 0; font-size: 12px; color: var(--faint); line-height: 1.6; }
+
+.result {
+  position: fixed; inset: 0; z-index: 115; display: grid; place-items: center;
+  padding: 22px; background: rgba(15, 26, 22, .78); backdrop-filter: blur(4px);
+  animation: fadein .2s ease both;
+}
+.result-card {
+  width: min(90vw, 360px); padding: 26px 24px 22px;
+  background: var(--ink); color: var(--paper);
+  border: 1px solid rgba(185,146,63,.5);
+  box-shadow: var(--shadow-3); text-align: center;
+  animation: pop .45s var(--ease-out) both;
+}
+.result-kicker { margin: 0 0 10px; font-size: 10px; letter-spacing: .3em; color: var(--gold); text-transform: uppercase; }
+.result-level {
+  font-size: 72px; line-height: 1; font-weight: 700; color: var(--gold-soft);
+  letter-spacing: -.02em;
+}
+.result-points { margin-top: 6px; font-size: 20px; font-weight: 700; color: #fff; }
+.result-comment { margin: 16px 0 0; font-size: 13.5px; line-height: 1.7; color: rgba(243,240,231,.86); }
+.result-note { margin: 10px 0 0; font-size: 12px; color: var(--gold-soft); }
+.result-card .btn-primary { margin-top: 20px; width: 100%; background: transparent; border-color: var(--gold); color: var(--gold-soft); }
+.result-card .btn-primary:hover { background: var(--gold); color: var(--ink); }
+
+/* ---------- 相册评级徽标 + 申诉 ---------- */
+.album-wrap { position: relative; }
+.level-badge {
+  position: absolute; top: 4px; left: 4px;
+  font-size: 10px; letter-spacing: .1em; padding: 2px 6px;
+  background: rgba(17,24,20,.78); color: var(--gold-soft);
+}
+.level-badge.lv-INVALID { color: #E8B4AA; }
+.appeal-btn {
+  position: absolute; right: 4px; bottom: 4px;
+  font-size: 10px; padding: 3px 8px; border: 1px solid rgba(243,240,231,.6);
+  background: rgba(17,24,20,.72); color: #F3F0E7; cursor: pointer;
+  font-family: inherit; letter-spacing: .08em;
+}
+.appeal-btn:hover { background: rgba(17,24,20,.92); }
+.appeal-btn[disabled] { opacity: .5; cursor: default; }
+
+/* ---------- 后台申诉列表 ---------- */
+.appeal-list { border-top: 1px solid var(--line-strong); }
+.appeal-item {
+  display: flex; gap: 14px; align-items: center;
+  padding: 14px 0; border-bottom: 1px solid var(--line);
+}
+.appeal-thumb { width: 56px; height: 56px; flex: none; background: var(--paper-2) center/cover no-repeat; border: 1px solid var(--line); }
+.appeal-main { flex: 1; min-width: 0; }
+.appeal-title { font-size: 14px; font-weight: 600; }
+.appeal-reason { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.appeal-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.appeal-acts .btn { padding: 6px 10px; font-size: 11px; letter-spacing: .08em; }
+
+/* ---------- 修复：相册包裹层导致图片 0 宽 ---------- */
+.album-wrap { position: relative; aspect-ratio: 1 / 1; }
+.album-wrap > .album-item { display: block; width: 100%; height: 100%; }
+.admin-photo .album-item { display: block; width: 100%; aspect-ratio: 1 / 1; }
+
+/* ---------- 站内通知 ---------- */
+.notice-list { max-height: 46vh; overflow-y: auto; margin-bottom: 18px; }
+.notice-item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.notice-item:last-child { border-bottom: 0; }
+.notice-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+.notice-body { font-size: 13.5px; line-height: 1.7; color: var(--muted); white-space: pre-wrap; }
+.notice-time { margin-top: 6px; font-size: 10.5px; letter-spacing: .1em; color: var(--faint); }
+.notice-dot {
+  display: inline-block; width: 6px; height: 6px; margin-left: 6px;
+  border-radius: 50%; background: #C0392B; vertical-align: middle;
+}

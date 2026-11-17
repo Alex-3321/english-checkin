@@ -27,7 +27,7 @@ const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const UPLOAD_DIR = path.join(ROOT, 'uploads');
 const AVATAR_DIR = path.join(UPLOAD_DIR, 'avatars');
-const DB_PATH = path.join(ROOT, 'data.db');
+const DB_PATH = process.env.DB_PATH || path.join(ROOT, 'data.db');
 const SECRET_FILE = path.join(ROOT, '.secret');
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -141,21 +141,59 @@ db.exec(`
   }
 })();
 
+/* ---------------- v2.2 迁移：AI 评级 / 积分 / 图片去重 / 申诉 ---------------- */
+(() => {
+  const cols = db.prepare('PRAGMA table_info(records)').all().map((c) => c.name);
+  const add = (name, ddl) => { if (!cols.includes(name)) db.exec(`ALTER TABLE records ADD COLUMN ${ddl}`); };
+  add('level', 'level TEXT');
+  add('comment', 'comment TEXT');
+  add('points', 'points INTEGER');
+  add('image_md5', 'image_md5 TEXT');
+  db.exec("UPDATE records SET points = CASE WHEN type='checkin' THEN 10 ELSE 20 END WHERE points IS NULL");
+  try {
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uniq_image_md5 ON records(image_md5) WHERE image_md5 IS NOT NULL");
+  } catch (e) { console.error('[migrate] image_md5 唯一索引失败:', e.message); }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS appeals (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      record_id    INTEGER NOT NULL,
+      user_id      INTEGER NOT NULL,
+      reason       TEXT NOT NULL,
+      status       TEXT NOT NULL DEFAULT 'pending',
+      result_level TEXT,
+      created_at   TEXT NOT NULL,
+      handled_at   TEXT,
+      FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id)   REFERENCES users(id)   ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_appeal_pending ON appeals(record_id) WHERE status='pending';
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      title      TEXT NOT NULL,
+      body       TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      read_at    TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, read_at);
+  `);
+})();
+
 /* ---------------- 时间（严格 Asia/Shanghai，存储即北京时间） ---------------- */
-const isoTZ = new Intl.DateTimeFormat('en-CA', {
-  timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-  hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-});
-function partsCN(d = new Date()) {
-  return isoTZ.formatToParts(d).reduce((a, x) => (a[x.type] = x.value, a), {});
-}
-/* 直接生成北京时间字符串：YYYY-MM-DDTHH:mm:ss.sss+08:00 */
-function nowCN(d = new Date()) {
+const bd = require('./lib/business-day');
+const aiGrader = require('./lib/ai-grader');
+const aiQueue = require('./lib/ai-queue');
+const { nowDate, partsCN, businessDay, minutesOfDay, minutesToHHMM } = bd;
+
+function nowCN(d = nowDate()) {
   const p = partsCN(d);
   const ms = String(d.getMilliseconds()).padStart(3, '0');
   return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}.${ms}+08:00`;
 }
-function todayStr() { const p = partsCN(); return `${p.year}-${p.month}-${p.day}`; }
+function todayStr() { const p = partsCN(); return `${p.year}-${p.month}-${p.day}`; }   // 自然日（仅展示用）
 function dayStartCN(day) { return `${day}T00:00:00.000+08:00`; }
 function addDay(day) {
   const d = new Date(`${day}T00:00:00+08:00`);
@@ -165,7 +203,7 @@ function addDay(day) {
 }
 
 /* 自然季度：1-3 / 4-6 / 7-9 / 10-12 */
-function quarterInfo(ref = new Date()) {
+function quarterInfo(ref = nowDate()) {
   const p = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit' })
     .formatToParts(ref).reduce((a, x) => (a[x.type] = x.value, a), {});
   const y = Number(p.year), m = Number(p.month);
@@ -299,17 +337,36 @@ function likeCount(id) {
 const PTS = { checkin: 10, upload: 20 };
 function quarterScore(uid) {
   const row = db.prepare(`
-    SELECT COALESCE(SUM(CASE type WHEN 'checkin' THEN 10 WHEN 'upload' THEN 20 ELSE 0 END),0) s
+    SELECT COALESCE(SUM(points),0) s
     FROM records WHERE user_id=? AND created_at>=? AND deleted_at IS NULL`).get(uid, seasonCutoff());
   return row ? row.s : 0;
 }
+/* 是否在当前「业务日」已有该类型记录 */
 function hasToday(uid, type) {
-  const d = todayStr();
-  return !!db.prepare('SELECT 1 FROM records WHERE user_id=? AND type=? AND created_at>=? AND created_at<?')
-    .get(uid, type, dayStartCN(d), dayStartCN(addDay(d)));
+  return !!db.prepare('SELECT 1 FROM records WHERE user_id=? AND type=? AND record_day=?')
+    .get(uid, type, businessDay());
 }
 function bumpTotal(uid, pts) {
   db.prepare('UPDATE users SET total_score = total_score + ? WHERE id=?').run(pts, uid);
+}
+
+/* ---------------- 站点标题（可在后台修改，env 作为初始值） ---------------- */
+const DEFAULT_SITE_TITLE = process.env.SITE_TITLE || '朗英 英语协会';
+
+function getSetting(key, fallback = '') {
+  const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+  return row && row.value != null ? row.value : fallback;
+}
+function setSetting(key, value) {
+  db.prepare(`INSERT INTO settings (key,value) VALUES (?,?)
+              ON CONFLICT(key) DO UPDATE SET value=excluded.value`).run(key, value);
+}
+function siteTitle() {
+  return getSetting('site_title', DEFAULT_SITE_TITLE);
+}
+/* 首次启动写入默认值，之后以数据库为准 */
+if (!db.prepare("SELECT 1 FROM settings WHERE key='site_title'").get()) {
+  setSetting('site_title', DEFAULT_SITE_TITLE);
 }
 
 /* ---------------- 管理员保证存在 ---------------- */
@@ -364,7 +421,7 @@ async function handleApi(req, res, url) {
     const uid = Number(info.lastInsertRowid);
     const u = db.prepare(`SELECT ${PUBLIC_COLS} FROM users WHERE id=?`).get(uid);
     return sendJSON(res, 200, { ok: true, user: u },
-      { 'Set-Cookie': COOKIE(sign({ uid, iat: Date.now(), exp: Date.now() + 30 * 864e5 }), 30 * 86400) });
+      { 'Set-Cookie': COOKIE(sign({ uid, iat: nowDate().getTime(), exp: nowDate().getTime() + 30 * 864e5 }), 30 * 86400) });
   }
 
   if (p === '/api/login' && method === 'POST') {
@@ -377,7 +434,12 @@ async function handleApi(req, res, url) {
     if (!row || !verifyPassword(pw, row.password_hash)) return sendJSON(res, 401, { error: '学号或密码错误' });
     const u = db.prepare(`SELECT ${PUBLIC_COLS} FROM users WHERE id=?`).get(row.id);
     return sendJSON(res, 200, { ok: true, user: u },
-      { 'Set-Cookie': COOKIE(sign({ uid: row.id, iat: Date.now(), exp: Date.now() + 30 * 864e5 }), 30 * 86400) });
+      { 'Set-Cookie': COOKIE(sign({ uid: row.id, iat: nowDate().getTime(), exp: nowDate().getTime() + 30 * 864e5 }), 30 * 86400) });
+  }
+
+  /* ---- 公开：站点配置（登录页也要用） ---- */
+  if (p === '/api/site' && method === 'GET') {
+    return sendJSON(res, 200, { title: siteTitle() });
   }
 
   /* ---- 以下全部需要登录 ---- */
@@ -399,18 +461,23 @@ async function handleApi(req, res, url) {
       season_cutoff: seasonCutoff(),
       quarter_score: quarterScore(me.id),
       today: todayStr(),
+      business_day: businessDay(),
+      reset_hour: bd.RESET_HOUR,
+      day_open: Number(partsCN().hour) >= bd.RESET_HOUR,
       checked_in: hasToday(me.id, 'checkin'),
       uploaded: hasToday(me.id, 'upload'),
       server_time: nowCN(),
+      site_title: siteTitle(),
     });
   }
 
   if (p === '/api/check-in' && method === 'POST') {
     if (me.role === 'super_admin') return sendJSON(res, 400, { error: '管理员不参与打卡' });
     if (hasToday(me.id, 'checkin')) return sendJSON(res, 400, { error: '今日已签到，不可重复提交' });
-    const cday = todayStr();
+    const cday = businessDay();
     try {
-      db.prepare('INSERT INTO records (user_id,type,image_path,created_at,record_day) VALUES (?,?,NULL,?,?)').run(me.id, 'checkin', nowCN(), cday);
+      db.prepare('INSERT INTO records (user_id,type,image_path,created_at,record_day,points) VALUES (?,?,NULL,?,?,?)')
+        .run(me.id, 'checkin', nowCN(), cday, PTS.checkin);
     } catch (e) {
       if (/UNIQUE/i.test(e.message)) return sendJSON(res, 400, { error: '今日已签到，不可重复提交' });
       throw e;
@@ -422,6 +489,7 @@ async function handleApi(req, res, url) {
   if (p === '/api/upload' && method === 'POST') {
     if (me.role === 'super_admin') return sendJSON(res, 400, { error: '管理员不参与打卡' });
     if (hasToday(me.id, 'upload')) return sendJSON(res, 400, { error: '今日已打卡，不可重复提交或修改' });
+
     const buf = await readBody(req, MAX_UPLOAD + 2 * 1024 * 1024);
     const parts = parseMultipart(buf, req.headers['content-type']);
     const file = parts.find((x) => x.data && x.data.length > 0);
@@ -429,20 +497,53 @@ async function handleApi(req, res, url) {
     if (file.data.length > MAX_UPLOAD) return sendJSON(res, 413, { error: '图片不能超过 5MB' });
     const ext = sniffImage(file.data);
     if (!ext) return sendJSON(res, 400, { error: '只支持 jpg/png/webp/gif 图片' });
+
+    /* 防作弊：同一张图不允许重复使用 */
+    const hash = aiGrader.md5(file.data);
+    if (db.prepare('SELECT 1 FROM records WHERE image_md5=?').get(hash)) {
+      return sendJSON(res, 409, { error: '请勿重复使用历史照片' });
+    }
+
+    /* AI 阅卷：失败/超时自动降级为 B 级 */
+    let grade;
+    try {
+      grade = await aiQueue.run(() => aiGrader.gradeImage(file.data, `image/${ext}`));
+    } catch (e) {
+      const reason = e.code === 'QUEUE_TIMEOUT' ? '排队超时' : e.message;
+      console.error('[ai] 阅卷失败（' + reason + '），降级为 B');
+      grade = { level: 'B', comment: 'AI老师繁忙，本次按B级发放积分', degraded: true };
+    }
+
+    if (grade.level === 'INVALID') {
+      return sendJSON(res, 200, {
+        ok: true, accepted: false, level: 'INVALID',
+        comment: grade.comment,
+        message: '打卡失败，请上传真实的英语学习照片或背词APP截图',
+      });
+    }
+
+    const pts = aiGrader.POINTS[grade.level] || 25;
     const fname = `${me.id}-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.${ext}`;
     fs.writeFileSync(path.join(UPLOAD_DIR, fname), file.data, { mode: 0o644 });
+
     try {
-      db.prepare('INSERT INTO records (user_id,type,image_path,created_at,record_day) VALUES (?,?,?,?,?)')
-        .run(me.id, 'upload', fname, nowCN(), todayStr());
+      db.prepare(`INSERT INTO records (user_id,type,image_path,created_at,record_day,level,comment,points,image_md5)
+                  VALUES (?,?,?,?,?,?,?,?,?)`)
+        .run(me.id, 'upload', fname, nowCN(), businessDay(), grade.level, grade.comment, pts, hash);
     } catch (e) {
-      if (/UNIQUE/i.test(e.message)) {
-        try { fs.unlinkSync(path.join(UPLOAD_DIR, fname)); } catch {}
-        return sendJSON(res, 400, { error: '今日已打卡，不可重复提交或修改' });
-      }
+      try { fs.unlinkSync(path.join(UPLOAD_DIR, fname)); } catch {}
+      if (/UNIQUE/i.test(e.message)) return sendJSON(res, 409, { error: '请勿重复使用历史照片' });
       throw e;
     }
-    bumpTotal(me.id, PTS.upload);
-    return sendJSON(res, 200, { ok: true, gained: PTS.upload, quarter_score: quarterScore(me.id), image: `/uploads/${fname}` });
+    bumpTotal(me.id, pts);
+
+    return sendJSON(res, 200, {
+      ok: true, accepted: true,
+      level: grade.level, points: pts, comment: grade.comment,
+      degraded: !!grade.degraded,
+      image: `/uploads/${fname}`,
+      quarter_score: quarterScore(me.id),
+    });
   }
 
   if (p === '/api/avatar' && method === 'POST') {
@@ -471,15 +572,39 @@ async function handleApi(req, res, url) {
   if (p === '/api/leaderboard' && method === 'GET') {
     const rows = db.prepare(`
       SELECT u.id, u.student_id, u.name, u.class_name, u.avatar, u.total_score,
-             COALESCE(SUM(CASE r.type WHEN 'checkin' THEN 10 WHEN 'upload' THEN 20 ELSE 0 END),0) AS score,
+             COALESCE(SUM(r.points),0) AS score,
              SUM(CASE r.type WHEN 'checkin' THEN 1 ELSE 0 END) AS checkin_days,
              SUM(CASE r.type WHEN 'upload' THEN 1 ELSE 0 END) AS upload_days
       FROM users u LEFT JOIN records r ON r.user_id=u.id AND r.created_at>=? AND r.deleted_at IS NULL
       WHERE u.role='student'
       GROUP BY u.id ORDER BY score DESC, u.total_score DESC, u.created_at ASC`).all(seasonCutoff());
+    /* 历史平均打卡时间：用真实点击时间戳（北京时间 HH:mm）求平均，早起者更早 */
+    const acc = new Map();
+    for (const c of db.prepare("SELECT user_id, created_at FROM records WHERE type='checkin' AND deleted_at IS NULL").all()) {
+      const m = minutesOfDay(new Date(c.created_at));
+      const a = acc.get(c.user_id) || { sum: 0, n: 0 };
+      a.sum += m; a.n += 1; acc.set(c.user_id, a);
+    }
+
+    const enriched = rows.map((r) => {
+      const a = acc.get(r.id);
+      const avg = a && a.n ? a.sum / a.n : null;
+      return { ...r, avg_min: avg, avg_time: minutesToHHMM(avg) };
+    });
+
+    /* 排序：本季积分降序 → 平均打卡时间升序（早者靠前，无记录排最后）→ 总积分降序 */
+    enriched.sort((x, y) => {
+      if (y.score !== x.score) return y.score - x.score;
+      if (x.avg_min == null && y.avg_min == null) return y.total_score - x.total_score;
+      if (x.avg_min == null) return 1;
+      if (y.avg_min == null) return -1;
+      if (x.avg_min !== y.avg_min) return x.avg_min - y.avg_min;
+      return y.total_score - x.total_score;
+    });
+
     return sendJSON(res, 200, {
       quarter: quarterInfo(), season_cutoff: seasonCutoff(),
-      ranking: rows.map((r, i) => ({ rank: i + 1, ...r })),
+      ranking: enriched.map((r, i) => ({ rank: i + 1, ...r })),
     });
   }
 
@@ -502,7 +627,10 @@ async function handleApi(req, res, url) {
     if (!u) return sendJSON(res, 404, { error: '用户不存在' });
     const canSee = id === me.id || isAdmin || u.is_public === 1;
     const photos = canSee
-      ? db.prepare("SELECT id,image_path,created_at FROM records WHERE user_id=? AND type='upload' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 200").all(id)
+      ? db.prepare(`SELECT r.id, r.image_path, r.created_at, r.level, r.points,
+                      (SELECT a.status FROM appeals a WHERE a.record_id=r.id ORDER BY a.id DESC LIMIT 1) AS appeal_status
+                    FROM records r WHERE r.user_id=? AND r.type='upload' AND r.deleted_at IS NULL
+                    ORDER BY r.created_at DESC LIMIT 200`).all(id)
       : [];
     const pending = db.prepare("SELECT id FROM friend_requests WHERE from_id=? AND to_id=? AND status='pending'").get(me.id, id);
     return sendJSON(res, 200, {
@@ -515,9 +643,49 @@ async function handleApi(req, res, url) {
         request_pending: !!pending,
       },
       can_see_photos: canSee,
-      photos: photos.map((x) => ({ id: x.id, url: `/uploads/${x.image_path}`, at: x.created_at })),
+      photos: photos.map((x) => ({ id: x.id, url: `/uploads/${x.image_path}`, at: x.created_at,
+                                   level: x.level, points: x.points, appeal_status: x.appeal_status })),
       quarter_score: quarterScore(id),
     });
+  }
+
+  /* 站内通知 */
+  if (p === '/api/notifications' && method === 'GET') {
+    const rows = db.prepare('SELECT id,title,body,created_at,read_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 50').all(me.id);
+    return sendJSON(res, 200, {
+      items: rows.map((x) => ({ id: x.id, title: x.title, body: x.body, at: x.created_at, read: !!x.read_at })),
+      unread_count: rows.filter((x) => !x.read_at).length,
+    });
+  }
+  if (p === '/api/notifications/read-all' && method === 'POST') {
+    db.prepare('UPDATE notifications SET read_at=? WHERE user_id=? AND read_at IS NULL').run(nowCN(), me.id);
+    return sendJSON(res, 200, { ok: true });
+  }
+  const mNotifRead = /^\/api\/notifications\/(\d+)\/read$/.exec(p);
+  if (mNotifRead && method === 'POST') {
+    db.prepare('UPDATE notifications SET read_at=? WHERE id=? AND user_id=?').run(nowCN(), Number(mNotifRead[1]), me.id);
+    return sendJSON(res, 200, { ok: true });
+  }
+
+  /* 用户申诉：对某条打卡记录申请复评 */
+  const mAppeal = /^\/api\/records\/(\d+)\/appeal$/.exec(p);
+  if (mAppeal && method === 'POST') {
+    const rid = Number(mAppeal[1]);
+    const b = JSON.parse((await readBody(req)).toString() || '{}');
+    const reason = String(b.reason || '').trim();
+    if (!reason) return sendJSON(res, 400, { error: '请填写申诉理由' });
+    if (reason.length > 200) return sendJSON(res, 400, { error: '申诉理由不超过 200 字' });
+    const rec = db.prepare('SELECT id,user_id,type FROM records WHERE id=?').get(rid);
+    if (!rec || rec.type !== 'upload') return sendJSON(res, 404, { error: '记录不存在' });
+    if (rec.user_id !== me.id && !isAdmin) return sendJSON(res, 403, { error: '无权申诉' });
+    try {
+      db.prepare('INSERT INTO appeals (record_id,user_id,reason,status,created_at) VALUES (?,?,?,?,?)')
+        .run(rid, me.id, reason, 'pending', nowCN());
+    } catch (e) {
+      if (/UNIQUE/i.test(e.message)) return sendJSON(res, 409, { error: '该记录已有待处理申诉' });
+      throw e;
+    }
+    return sendJSON(res, 200, { ok: true });
   }
 
   /* 点赞 */
@@ -673,6 +841,7 @@ async function handleApi(req, res, url) {
       const recs = db.prepare('SELECT COUNT(*) c FROM records').get();
       return sendJSON(res, 200, {
         quarter: quarterInfo(), season_cutoff: seasonCutoff(),
+        site_title: siteTitle(),
         stats: { users: totals.c, records: recs.c },
         users: users.map((u) => ({ ...u, quarter_score: quarterScore(u.id) })),
       });
@@ -695,12 +864,91 @@ async function handleApi(req, res, url) {
     const mDelPhoto = /^\/api\/admin\/records\/(\d+)\/delete$/.exec(p);
     if (mDelPhoto && method === 'POST') {
       const rid = Number(mDelPhoto[1]);
-      const rec = db.prepare("SELECT id,user_id,type,deleted_at FROM records WHERE id=?").get(rid);
+      const rec = db.prepare("SELECT id,user_id,type,deleted_at,points FROM records WHERE id=?").get(rid);
       if (!rec || rec.type !== 'upload') return sendJSON(res, 404, { error: '记录不存在' });
       if (rec.deleted_at) return sendJSON(res, 200, { ok: true, already: true });
       db.prepare('UPDATE records SET deleted_at=? WHERE id=?').run(nowCN(), rid);
-      db.prepare('UPDATE users SET total_score = MAX(total_score - 20, 0) WHERE id=?').run(rec.user_id);
+      db.prepare('UPDATE users SET total_score = MAX(total_score - ?, 0) WHERE id=?').run(rec.points || 0, rec.user_id);
       return sendJSON(res, 200, { ok: true, soft_deleted: true });
+    }
+
+    if (p === '/api/admin/site' && method === 'PUT') {
+      const b = JSON.parse((await readBody(req)).toString() || '{}');
+      const title = String(b.title || '').trim();
+      if (!title) return sendJSON(res, 400, { error: '标题不能为空' });
+      if (title.length > 40) return sendJSON(res, 400, { error: '标题不超过 40 字' });
+      setSetting('site_title', title);
+      return sendJSON(res, 200, { ok: true, title });
+    }
+    if (p === '/api/admin/site' && method === 'GET') {
+      return sendJSON(res, 200, { title: siteTitle(), default: DEFAULT_SITE_TITLE });
+    }
+
+    if (p === '/api/admin/appeals' && method === 'GET') {
+      const rows = db.prepare(`
+        SELECT a.id, a.reason, a.status, a.created_at, a.record_id,
+               r.level, r.points, r.image_path,
+               u.id AS user_id, u.name, u.student_id, u.class_name
+        FROM appeals a
+        JOIN records r ON r.id = a.record_id
+        JOIN users u ON u.id = a.user_id
+        WHERE a.status='pending'
+        ORDER BY a.id DESC`).all();
+      return sendJSON(res, 200, {
+        items: rows.map((x) => ({ ...x, image: `/uploads/${x.image_path}` })),
+        pending_count: rows.length,
+      });
+    }
+
+    const mAppealResolve = /^\/api\/admin\/appeals\/(\d+)$/.exec(p);
+    if (mAppealResolve && method === 'PUT') {
+      const aid = Number(mAppealResolve[1]);
+      const b = JSON.parse((await readBody(req)).toString() || '{}');
+      const level = String(b.level || '').toUpperCase();
+      if (!['A', 'B', 'C', 'INVALID'].includes(level)) return sendJSON(res, 400, { error: '等级必须是 A/B/C/INVALID' });
+      const appeal = db.prepare('SELECT * FROM appeals WHERE id=?').get(aid);
+      if (!appeal || appeal.status !== 'pending') return sendJSON(res, 404, { error: '申诉不存在或已处理' });
+      const rec = db.prepare('SELECT * FROM records WHERE id=?').get(appeal.record_id);
+      if (!rec) return sendJSON(res, 404, { error: '记录不存在' });
+
+      /* 判无效：直接删除记录 + 物理删除照片 + 扣回积分 */
+      if (level === 'INVALID') {
+        const delta = -(rec.points || 0);
+        db.prepare('DELETE FROM records WHERE id=?').run(rec.id);
+        if (rec.image_path) {
+          try { fs.unlinkSync(path.join(UPLOAD_DIR, rec.image_path)); } catch {}
+        }
+        if (delta !== 0) {
+          db.prepare('UPDATE users SET total_score = MAX(total_score + ?, 0) WHERE id=?').run(delta, rec.user_id);
+        }
+        db.prepare("UPDATE appeals SET status='resolved', result_level='INVALID', handled_at=? WHERE id=?").run(nowCN(), aid);
+        return sendJSON(res, 200, { ok: true, level: 'INVALID', points: 0, delta, deleted: true });
+      }
+
+      const newPts = aiGrader.POINTS[level] || 0;
+      const delta = newPts - (rec.points || 0);
+      db.prepare('UPDATE records SET level=?, points=?, comment=? WHERE id=?')
+        .run(level, newPts, `管理员复评：${level} 级`, rec.id);
+      if (delta !== 0) {
+        db.prepare('UPDATE users SET total_score = MAX(total_score + ?, 0) WHERE id=?').run(delta, rec.user_id);
+      }
+      db.prepare("UPDATE appeals SET status='resolved', result_level=?, handled_at=? WHERE id=?").run(level, nowCN(), aid);
+      return sendJSON(res, 200, { ok: true, level, points: newPts, delta });
+    }
+
+    if (p === '/api/admin/notifications' && method === 'POST') {
+      const b = JSON.parse((await readBody(req)).toString() || '{}');
+      const title = String(b.title || '').trim();
+      const body = String(b.body || '').trim();
+      const ids = Array.isArray(b.user_ids) ? b.user_ids.map(Number).filter(Boolean) : [];
+      if (!title || !body) return sendJSON(res, 400, { error: '标题和内容不能为空' });
+      const targets = ids.length ? ids : db.prepare("SELECT id FROM users WHERE role='student'").all().map((x) => x.id);
+      const ins = db.prepare('INSERT INTO notifications (user_id,title,body,created_at) VALUES (?,?,?,?)');
+      const ts = nowCN();
+      db.exec('BEGIN');
+      for (const uid of targets) ins.run(uid, title, body, ts);
+      db.exec('COMMIT');
+      return sendJSON(res, 200, { ok: true, count: targets.length });
     }
 
     if (p === '/api/admin/reset-quarter' && method === 'POST') {

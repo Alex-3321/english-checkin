@@ -48,6 +48,74 @@ async function api(path, opts = {}) {
   return data;
 }
 
+
+/* ---------- 通用确认弹层（替代原生 confirm，移动端更可靠） ---------- */
+function askConfirm(text, okLabel = '确认') {
+  return new Promise((resolve) => {
+    const modal = $('#askModal');
+    $('#askText').textContent = text;
+    $('#askOk').textContent = okLabel;
+    modal.hidden = false;
+    const done = (v) => {
+      modal.hidden = true;
+      $('#askOk').onclick = null;
+      $('#askCancel').onclick = null;
+      modal.onclick = null;
+      resolve(v);
+    };
+    $('#askOk').onclick = () => done(true);
+    $('#askCancel').onclick = () => done(false);
+    modal.onclick = (e) => { if (e.target.id === 'askModal') done(false); };
+  });
+}
+
+
+/* ---------- 站内通知：下次登录弹出 ---------- */
+let noticeShown = false;
+
+async function checkNotifications() {
+  if (noticeShown || !state.me) return;
+  try {
+    const d = await api('/api/notifications');
+    const unread = d.items.filter((x) => !x.read);
+    if (!unread.length) return;
+    noticeShown = true;
+    const box = $('#noticeList');
+    box.innerHTML = unread.map((n) => `
+      <div class="notice-item">
+        <div class="notice-title">${esc(n.title)}</div>
+        <div class="notice-body">${esc(n.body)}</div>
+        <div class="notice-time">${fmtTime(n.at)}</div>
+      </div>`).join('');
+    $('#noticeModal').hidden = false;
+  } catch { /* 静默 */ }
+}
+
+$('#noticeOk').addEventListener('click', async () => {
+  $('#noticeModal').hidden = true;
+  try { await api('/api/notifications/read-all', { method: 'POST' }); } catch {}
+});
+
+/* ================= 站点标题（可配置） ================= */
+let SITE_TITLE = '';
+
+function applySiteTitle(title) {
+  if (!title) return;
+  SITE_TITLE = title;
+  const el = $('#siteTitleHome');
+  if (el) el.textContent = title;
+  const brand = $('#brandCn');
+  if (brand) brand.textContent = title;
+  document.title = title;
+}
+
+async function loadSiteTitle() {
+  try {
+    const d = await api('/api/site');
+    applySiteTitle(d.title);
+  } catch { /* 保持 HTML 里的默认值 */ }
+}
+
 /* ================= 路由 ================= */
 const ROUTES = ['auth', 'home', 'rank', 'me', 'user', 'friends', 'chat', 'admin'];
 
@@ -81,7 +149,7 @@ async function router() {
 
   try {
     if (route === 'home') { showView('home'); await loadHome(); }
-    else if (route === 'rank') { showView('rank'); await loadRank(); }
+    else if (route === 'rank') { showView('rank'); renderSkeleton($('#rankList')); await loadRank(); }
     else if (route === 'me') { showView('me'); await loadMe(); }
     else if (route === 'user' && param) { showView('user'); await loadUser(Number(param)); }
     else if (route === 'friends') { showView('friends'); await loadFriends(); }
@@ -95,7 +163,11 @@ async function router() {
   }
 }
 
-window.addEventListener('hashchange', () => { leaveChat(); router(); });
+window.addEventListener('hashchange', () => {
+  const go = () => { leaveChat(); router(); };
+  if (document.startViewTransition) document.startViewTransition(go);
+  else go();
+});
 
 /* 顶部导航：按钮不是链接，必须显式绑定（此前缺失导致点不开） */
 $('#tabs').addEventListener('click', (e) => {
@@ -237,6 +309,7 @@ async function afterLogin() {
   $('#tabs').hidden = false;
   $('.nav-admin').hidden = state.me.role !== 'super_admin';
   updateBadge();
+  checkNotifications();
   location.hash = state.me.role === 'super_admin' ? '#/admin' : '#/home';
   await router();
 }
@@ -245,13 +318,24 @@ async function afterLogin() {
 async function loadHome() {
   const d = await api('/api/me');
   state.me = d.user; state.quarter = d.quarter;
+  if (d.site_title) applySiteTitle(d.site_title);
 
   $('#homeKicker').textContent = `TODAY · ${d.today}`;
   $('#greeting').textContent = `${d.user.name}，${d.checked_in && d.uploaded ? '今天已完成' : '今天还没完成'}`;
   $('#userMeta').textContent = `${d.user.class_name}　·　学号 ${d.user.student_id}`;
-  $('#quarterScore').textContent = d.quarter_score;
-  $('#totalScore').textContent = d.user.total_score;
+  countUp($('#quarterScore'), d.quarter_score);
+  countUp($('#totalScore'), d.user.total_score);
   $('#quarterLabel').textContent = `${d.quarter.label}（${d.quarter.months}）`;
+
+  /* 业务日提示：07:00 刷新 */
+  const note = $('#resetNote');
+  if (note) {
+    const hour = String(d.reset_hour ?? 7).padStart(2, '0');
+    note.textContent = d.day_open
+      ? `⏰ 每日打卡刷新时间：早上 ${hour}:00`
+      : `⏰ 每日打卡刷新时间：早上 ${hour}:00 · 今日打卡将于 ${hour}:00 开启（现在补打卡计入 ${d.business_day}）`;
+    note.classList.toggle('is-closed', !d.day_open);
+  }
 
   const isAdmin = d.user.role === 'super_admin';
   $('#checkinBtn').disabled = isAdmin || d.checked_in;
@@ -272,6 +356,40 @@ $('#checkinBtn').addEventListener('click', async () => {
     ritual(`+${r.gained}`, '签到成功');
     await loadHome();
   } catch (e) { toast(e.message, true); await loadHome().catch(() => {}); }
+});
+
+
+/* ---------- 上传前压缩：长边 ≤1600，JPEG 0.82 ---------- */
+async function compressImage(file, maxEdge = 1600, quality = 0.82) {
+  if (!file.type.startsWith('image/')) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
+    if (scale === 1 && file.size < 1.2 * 1024 * 1024) return file;
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const h = Math.max(1, Math.round(bmp.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', quality));
+    if (!blob) return file;
+    return blob.size < file.size ? new File([blob], 'photo.jpg', { type: 'image/jpeg' }) : file;
+  } catch { return file; }
+}
+
+/* ---------- AI 结果卡 ---------- */
+function showResult(r) {
+  $('#resultLevel').textContent = r.level || 'B';
+  $('#resultPoints').textContent = `+${r.points ?? 0}`;
+  $('#resultComment').textContent = r.comment || '';
+  const note = $('#resultNote');
+  note.hidden = !r.degraded;
+  note.textContent = r.degraded ? 'AI 老师繁忙，本次按 B 级发放积分' : '';
+  $('#resultModal').hidden = false;
+}
+$('#resultClose').addEventListener('click', () => { $('#resultModal').hidden = true; });
+$('#resultModal').addEventListener('click', (e) => {
+  if (e.target.id === 'resultModal') $('#resultModal').hidden = true;
 });
 
 /* ---------- 打卡：二次确认 + 防连点 ---------- */
@@ -314,17 +432,22 @@ $('#confirmOk').addEventListener('click', async () => {
 async function doUpload(file) {
   uploading = true;
   const label = $('#uploadLabel');
-  label.textContent = '正在上传中...';
+  label.textContent = '🤖 AI 老师正在批改你的作业...';
   label.classList.add('is-disabled');
   label.style.pointerEvents = 'none';
   try {
+    const compressed = await compressImage(file);
     const fd = new FormData();
-    fd.append('image', file, file.name || 'p.jpg');
+    fd.append('image', compressed, compressed.name || 'photo.jpg');
     const r = await api('/api/upload', { method: 'POST', body: fd });
-    ritual(`+${r.gained}`, '打卡成功');
-    await loadHome();
+    if (r.accepted === false) {
+      showToast(r.message || '打卡失败，请上传真实的英语学习照片或背词APP截图', true, 4000);
+    } else {
+      showResult(r);
+      await loadHome();
+    }
   } catch (err) {
-    toast(err.message, true);
+    toast(err.message, true, 3600);
     await loadHome().catch(() => {});
   } finally {
     uploading = false;
@@ -351,13 +474,14 @@ async function loadRank() {
       ${avatarHtml(r, 'avatar-sm')}
       <div class="board-main">
         <div class="board-name">${esc(r.name)}</div>
-        <div class="board-meta">${esc(r.class_name)} · 签到 ${r.checkin_days || 0} 天 / 打卡 ${r.upload_days || 0} 天</div>
+        <div class="board-meta">${esc(r.class_name)} · 签到 ${r.checkin_days || 0} 天 / 打卡 ${r.upload_days || 0} 天${r.avg_time ? ` · 平均 ${r.avg_time}` : ''}</div>
       </div>
       <div class="board-score">${r.score}<small>分</small></div>`;
     li.addEventListener('click', () => { location.hash = `#/user/${r.id}`; });
     frag.appendChild(li);
   });
   list.appendChild(frag);
+  stagger(list);
 }
 
 /* ================= 我的主页 ================= */
@@ -373,25 +497,73 @@ async function loadMe() {
   $('#privacyToggle').checked = !!d.user.is_public;
 
   const prof = await api(`/api/users/${d.user.id}`);
-  renderAlbum($('#myAlbum'), prof.photos, $('#myAlbumEmpty'), '还没有打卡照片，今天就开始吧。');
+  renderAlbum($('#myAlbum'), prof.photos, $('#myAlbumEmpty'), '还没有打卡照片，今天就开始吧。', d.user.id);
   $('#albumCount').textContent = `${prof.photos.length} 张`;
 }
 
-function renderAlbum(box, photos, emptyEl, emptyText) {
+function renderAlbum(box, photos, emptyEl, emptyText, ownerId) {
   box.innerHTML = '';
   if (!photos.length) { emptyEl.hidden = false; emptyEl.textContent = emptyText; return; }
   emptyEl.hidden = true;
+  const canAppeal = ownerId && state.me && state.me.id === ownerId;
   const frag = document.createDocumentFragment();
   photos.forEach((p) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'album-wrap';
+
     const el = document.createElement('button');
     el.className = 'album-item';
     el.style.backgroundImage = `url('${p.url}')`;
-    el.title = fmtTime(p.at);
+    el.title = `${fmtTime(p.at)}${p.level ? ' · ' + p.level + ' 级' : ''}`;
     el.addEventListener('click', () => openLightbox(p.url));
-    frag.appendChild(el);
+    wrap.appendChild(el);
+
+    if (p.level) {
+      const badge = document.createElement('span');
+      badge.className = `level-badge lv-${p.level}`;
+      badge.textContent = p.level === 'INVALID' ? '无效' : p.level;
+      wrap.appendChild(badge);
+    }
+
+    if (canAppeal) {
+      const btn = document.createElement('button');
+      btn.className = 'appeal-btn';
+      btn.textContent = p.appeal_status === 'pending' ? '申诉中' : '申诉';
+      btn.disabled = p.appeal_status === 'pending';
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openAppeal(p.id);
+      });
+      wrap.appendChild(btn);
+    }
+    frag.appendChild(wrap);
   });
   box.appendChild(frag);
 }
+
+/* ---------- 申诉 ---------- */
+let appealRecordId = null;
+function openAppeal(recordId) {
+  appealRecordId = recordId;
+  $('#appealReason').value = '';
+  $('#appealModal').hidden = false;
+  $('#appealReason').focus();
+}
+$('#appealCancel').addEventListener('click', () => { $('#appealModal').hidden = true; });
+$('#appealModal').addEventListener('click', (e) => { if (e.target.id === 'appealModal') $('#appealModal').hidden = true; });
+$('#appealSubmit').addEventListener('click', async () => {
+  const reason = $('#appealReason').value.trim();
+  if (!reason) return toast('请填写申诉理由', true);
+  try {
+    await api(`/api/records/${appealRecordId}/appeal`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+    $('#appealModal').hidden = true;
+    toast('申诉已提交，等待管理员复核');
+    await loadMe();
+  } catch (e) { toast(e.message, true); }
+});
 
 $('#privacyToggle').addEventListener('change', async (e) => {
   const isPublic = e.target.checked;
@@ -447,7 +619,7 @@ async function loadUser(id) {
 
   if (d.can_see_photos) {
     $('#otherAlbumHint').textContent = `${d.photos.length} 张`;
-    renderAlbum($('#otherAlbum'), d.photos, $('#otherAlbumEmpty'), '还没有打卡照片。');
+    renderAlbum($('#otherAlbum'), d.photos, $('#otherAlbumEmpty'), '还没有打卡照片。', d.user.id);
   } else {
     $('#otherAlbum').innerHTML = '';
     $('#otherAlbumHint').textContent = '';
@@ -535,6 +707,7 @@ async function loadFriends() {
     row.addEventListener('click', () => { location.hash = `#/chat/${u.id}`; });
     box.appendChild(row);
   });
+  stagger(box);
 }
 
 function renderRequests(r) {
@@ -563,6 +736,7 @@ function renderRequests(r) {
     });
     box.appendChild(row);
   });
+  stagger(box);
 }
 
 async function handleRequest(id, action) {
@@ -670,6 +844,11 @@ async function loadAdmin() {
     <div class="stat"><strong>${d.stats.records}</strong><span>打卡记录</span></div>
     <div class="stat"><strong>${d.users.reduce((a, u) => a + u.quarter_score, 0)}</strong><span>本季总积分</span></div>`;
 
+  const input = $('#siteTitleInput');
+  if (input) input.value = d.site_title || SITE_TITLE || '';
+
+  loadAppeals();
+
   const box = $('#adminTable');
   box.innerHTML = '';
   const head = document.createElement('div');
@@ -690,6 +869,94 @@ async function loadAdmin() {
     box.appendChild(row);
   });
 }
+
+async function loadAppeals() {
+  const d = await api('/api/admin/appeals');
+  const box = $('#appealList');
+  if (!box) return;
+  box.innerHTML = '';
+  $('#appealCount').textContent = d.pending_count ? `${d.pending_count} 条待处理` : '';
+  if (!d.items.length) { $('#appealEmpty').hidden = false; return; }
+  $('#appealEmpty').hidden = true;
+
+  d.items.forEach((a) => {
+    const row = document.createElement('div');
+    row.className = 'appeal-item';
+    row.dataset.appeal = a.id;
+    row.innerHTML = `
+      <div class="appeal-thumb" style="background-image:url('${a.image}')" data-img="${a.image}"></div>
+      <div class="appeal-main">
+        <div class="appeal-title">${esc(a.name)} · ${esc(a.class_name)} · 当前 ${esc(a.level || '未评级')} 级</div>
+        <div class="appeal-reason">${esc(a.reason)}</div>
+      </div>
+      <div class="appeal-acts">
+        <button class="btn btn-line" data-lv="A">改判 A</button>
+        <button class="btn btn-line" data-lv="B">改判 B</button>
+        <button class="btn btn-line" data-lv="C">改判 C</button>
+        <button class="btn btn-danger" data-lv="INVALID">判无效</button>
+      </div>`;
+    const thumb = row.querySelector('.appeal-thumb');
+    if (thumb) {
+      thumb.style.cursor = 'zoom-in';
+      thumb.title = '点击查看大图';
+      thumb.addEventListener('click', (e) => { e.stopPropagation(); openLightbox(thumb.dataset.img); });
+    }
+
+    row.querySelectorAll('[data-lv]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const lv = btn.dataset.lv;
+        if (!confirm(`确认将这条记录改为 ${lv} 级？积分会相应补发或扣除。`)) return;
+        btn.disabled = true;
+        try {
+          const r = await api(`/api/admin/appeals/${a.id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ level: lv }),
+          });
+          toast(`已改判 ${r.level} 级，积分变动 ${r.delta > 0 ? '+' : ''}${r.delta}`);
+          await loadAppeals();
+          await loadAdmin();
+        } catch (e) { toast(e.message, true); btn.disabled = false; }
+      });
+    });
+    box.appendChild(row);
+  });
+}
+
+
+/* 申诉改判：事件委托（列表重渲染也不会失效） */
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('#appealList [data-lv]');
+  if (!btn || btn.disabled) return;
+  e.preventDefault();
+  const lv = btn.dataset.lv;
+  const appealId = btn.closest('[data-appeal]')?.dataset.appeal;
+  if (!appealId) return;
+
+  const label = btn.textContent;
+  const ok = await askConfirm(
+    lv === 'INVALID'
+      ? '确认判定该条打卡无效？记录与照片会被删除，对应积分将被扣除。'
+      : `确认将该条记录改为 ${lv} 级？积分会按新等级重新结算。`,
+    lv === 'INVALID' ? '判定无效' : '确认改判'
+  );
+  if (!ok) return;
+
+  btn.disabled = true;
+  btn.textContent = '处理中…';
+  try {
+    const r = await api(`/api/admin/appeals/${appealId}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level: lv }),
+    });
+    toast('改判成功，积分已重新结算！');
+    await loadAdmin();
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+});
 
 async function openAdminUser(id) {
   state.adminUserId = id;
@@ -721,6 +988,21 @@ async function openAdminUser(id) {
   box.scrollIntoView({ behavior: 'smooth' });
 }
 
+$('#saveSiteTitle').addEventListener('click', async () => {
+  const val = $('#siteTitleInput').value.trim();
+  const hint = $('#siteTitleHint');
+  if (!val) { hint.textContent = '标题不能为空'; return; }
+  try {
+    const r = await api('/api/admin/site', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: val }),
+    });
+    applySiteTitle(r.title);
+    hint.textContent = `已保存：「${r.title}」，刷新页面生效`;
+    toast('站点标题已更新');
+  } catch (e) { hint.textContent = e.message; toast(e.message, true); }
+});
+
 $('#exportBtn').addEventListener('click', () => { window.location = '/api/admin/export.csv'; });
 
 $('#resetBtn').addEventListener('click', async () => {
@@ -743,11 +1025,49 @@ $('#lightbox').addEventListener('click', (e) => { if (e.target.id === 'lightbox'
 /* ================= 启动 ================= */
 (async function boot() {
   $('#footDate').textContent = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'long' }).format(new Date());
+  await loadSiteTitle();
   try {
     const d = await api('/api/me');
     state.me = d.user; state.quarter = d.quarter;
     await router();
+    checkNotifications();
   } catch {
     showAuth();
   }
 })();
+
+
+/* ================= 视觉增强工具 ================= */
+function stagger(container) {
+  if (!container) return;
+  const kids = Array.from(container.children);
+  kids.forEach((el, i) => {
+    el.classList.add('reveal');
+    el.style.setProperty('--i', String(Math.min(i, 12)));
+  });
+  const show = () => kids.forEach((el) => el.classList.add('is-in'));
+  requestAnimationFrame(() => requestAnimationFrame(show));
+  setTimeout(show, 400);   /* 兜底：后台标签页 rAF 不触发时也能显示 */
+}
+
+function countUp(el, target, dur = 700) {
+  if (!el) return;
+  const to = Number(target) || 0;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || to === 0) {
+    el.textContent = String(to);
+    return;
+  }
+  const from = 0, t0 = performance.now();
+  const tick = (t) => {
+    const p = Math.min(1, (t - t0) / dur);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = String(Math.round(from + (to - from) * eased));
+    if (p < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function renderSkeleton(el) {
+  if (!el) return;
+  el.innerHTML = '<li class="skeleton-row"></li>'.repeat(3);
+}
