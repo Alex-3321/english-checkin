@@ -48,8 +48,16 @@ async function api(path, opts = {}) {
   try { data = await res.json(); } catch {}
   if (res.status === 401) {
     state.me = null;
+    if (data.code === 'SESSION_KICKED') {
+      try { localStorage.clear(); sessionStorage.clear(); } catch {}
+      try { leaveChat(); } catch {}
+      showAuth('您的账号已在其他设备登录，当前设备已下线');
+      const m = document.querySelector('#kickedModal');
+      if (m) m.hidden = false;
+      throw new ApiError(data.error || '已在其他设备登录', 401);
+    }
     showAuth('登录已失效，请重新登录');
-    throw new ApiError('未登录', 401);
+    throw new ApiError(data.error || '未登录', 401);
   }
   if (!res.ok) throw new ApiError(data.error || `请求失败（${res.status}）`, res.status);
   return data;
@@ -1129,3 +1137,12 @@ function renderSkeleton(el) {
   if (!el) return;
   el.innerHTML = '<li class="skeleton-row"></li>'.repeat(3);
 }
+
+/* 被顶下线：点「重新登录」回登录页 */
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'kickedOk') {
+    const m = document.querySelector('#kickedModal');
+    if (m) m.hidden = true;
+    showAuth('您已下线，请重新登录');
+  }
+});

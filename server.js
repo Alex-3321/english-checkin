@@ -164,6 +164,8 @@ db.exec(`
 
   const ucols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   if (!ucols.includes('is_hidden')) db.exec('ALTER TABLE users ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0');
+  if (!ucols.includes('current_token')) db.exec('ALTER TABLE users ADD COLUMN current_token TEXT');
+  if (!ucols.includes('allow_multi_device')) db.exec('ALTER TABLE users ADD COLUMN allow_multi_device INTEGER NOT NULL DEFAULT 0');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS appeals (
@@ -274,16 +276,26 @@ function cookies(req) {
   return out;
 }
 const PUBLIC_COLS = 'id, student_id, name, class_name, total_score, avatar, is_public, is_hidden, role, created_at';
-function currentUser(req) {
+/* 返回 { user } | { code: 'invalid' | 'kicked' } */
+function resolveSession(req) {
   const p = verify(cookies(req).sid);
-  if (!p || !p.iat) return null;
-  const user = db.prepare(`SELECT ${PUBLIC_COLS} FROM users WHERE id = ?`).get(p.uid);
-  if (!user) return null;
-  /* 关键防线：会话签发时间必须晚于账号创建时间。
-     否则「清库后重建同 id 账号」会让旧 cookie 直接冒名登录。 */
+  if (!p || !p.iat) return { code: 'invalid' };
+  const user = db.prepare(`SELECT ${PUBLIC_COLS}, current_token, allow_multi_device FROM users WHERE id = ?`).get(p.uid);
+  if (!user) return { code: 'invalid' };
   const born = Date.parse(user.created_at);
-  if (Number.isFinite(born) && p.iat < born) return null;
-  return user;
+  if (Number.isFinite(born) && p.iat < born) return { code: 'invalid' };
+
+  /* 单设备登录：cookie 里的 sn 必须等于库里最新的 current_token。
+     allow_multi_device = 1 的账号（超级管理员 3321）跳过此校验，可多端并存。 */
+  if (!user.allow_multi_device) {
+    if (!user.current_token) return { code: 'invalid' };        /* 老会话（无顶号机制）→ 正常重新登录 */
+    if (p.sn !== user.current_token) return { code: 'kicked' };  /* 被新设备顶掉 */
+  }
+  return { user };
+}
+function currentUser(req) {
+  const r = resolveSession(req);
+  return r.user || null;
 }
 const COOKIE = (v, age) => `sid=${v}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${age}`;
 
@@ -429,13 +441,15 @@ async function handleApi(req, res, url) {
     const v = validateRegister(raw);
     if (v.error) return sendJSON(res, 400, { error: v.error });
     if (db.prepare('SELECT 1 FROM users WHERE student_id=?').get(v.student_id)) return sendJSON(res, 409, { error: '该学号已注册' });
-    const info = db.prepare(`INSERT INTO users (student_id,name,class_name,password_hash,total_score,is_public,role,created_at)
-                             VALUES (?,?,?,?,0,1,'student',?)`)
-      .run(v.student_id, v.name, v.class_name, hashPassword(v.password), nowCN());
+
+    const sn = crypto.randomUUID();
+    const info = db.prepare(`INSERT INTO users (student_id,name,class_name,password_hash,total_score,is_public,role,created_at,current_token)
+                             VALUES (?,?,?,?,0,1,'student',?,?)`)
+      .run(v.student_id, v.name, v.class_name, hashPassword(v.password), nowCN(), sn);
     const uid = Number(info.lastInsertRowid);
     const u = db.prepare(`SELECT ${PUBLIC_COLS} FROM users WHERE id=?`).get(uid);
     return sendJSON(res, 200, { ok: true, user: u },
-      { 'Set-Cookie': COOKIE(sign({ uid, iat: nowDate().getTime(), exp: nowDate().getTime() + 30 * 864e5 }), 30 * 86400) });
+      { 'Set-Cookie': COOKIE(sign({ uid, iat: nowDate().getTime(), exp: nowDate().getTime() + 30 * 864e5, sn }), 30 * 86400) });
   }
 
   if (p === '/api/login' && method === 'POST') {
@@ -446,9 +460,15 @@ async function handleApi(req, res, url) {
     const pw = String(b.password || '');
     const row = db.prepare('SELECT * FROM users WHERE student_id=?').get(sid);
     if (!row || !verifyPassword(pw, row.password_hash)) return sendJSON(res, 401, { error: '学号或密码错误' });
+
+    /* 顶号：每次登录生成新会话号；非白名单账号直接覆盖库里的 current_token */
+    const sn = crypto.randomUUID();
+    if (!row.allow_multi_device) {
+      db.prepare('UPDATE users SET current_token=? WHERE id=?').run(sn, row.id);
+    }
     const u = db.prepare(`SELECT ${PUBLIC_COLS} FROM users WHERE id=?`).get(row.id);
     return sendJSON(res, 200, { ok: true, user: u },
-      { 'Set-Cookie': COOKIE(sign({ uid: row.id, iat: nowDate().getTime(), exp: nowDate().getTime() + 30 * 864e5 }), 30 * 86400) });
+      { 'Set-Cookie': COOKIE(sign({ uid: row.id, iat: nowDate().getTime(), exp: nowDate().getTime() + 30 * 864e5, sn }), 30 * 86400) });
   }
 
   /* ---- 公开：站点配置（登录页也要用） ---- */
@@ -457,16 +477,24 @@ async function handleApi(req, res, url) {
   }
 
   /* ---- 以下全部需要登录 ---- */
-  const me = currentUser(req);
-  if (!me) return sendJSON(res, 401, { error: '未登录' });
+  const sess = resolveSession(req);
+  if (!sess.user) {
+    if (sess.code === 'kicked') {
+      return sendJSON(res, 401, { error: '您的账号已在其他设备登录，当前设备已下线', code: 'SESSION_KICKED' });
+    }
+    return sendJSON(res, 401, { error: '未登录', code: 'UNAUTHENTICATED' });
+  }
+  const me = sess.user;
   const isAdmin = me.role === 'super_admin';
 
-  if (p === '/api/logout' && method === 'POST')
+  if (p === '/api/logout' && method === 'POST') {
+    if (!me.allow_multi_device) db.prepare('UPDATE users SET current_token=NULL WHERE id=?').run(me.id);
     return sendJSON(res, 200, { ok: true }, {
       'Set-Cookie': COOKIE('', 0),
       /* 通知浏览器清空本站 cookie / 缓存 / localStorage / sessionStorage */
       'Clear-Site-Data': '"cache", "cookies", "storage"',
     });
+  }
 
   if (p === '/api/me' && method === 'GET') {
     return sendJSON(res, 200, {
