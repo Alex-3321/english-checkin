@@ -345,20 +345,24 @@ function triggerBlink(eyeElements, count = 1) {
   }
 }
 
-// 装配封面吉祥物并预解码全部贴图
-mascotSlot.innerHTML = buildRigMarkup(MASCOT_CONFIG, { withShadow: true, withOuch: true });
-const packEyes = [...mascotSlot.querySelectorAll('.rig-eye')];
-const packPupils = [...mascotSlot.querySelectorAll('.rig-pupil')];
-
-const preloadedImages = [
-  MASCOT_CONFIG.image,
-  ...CARD_POOL.flatMap((c) => [c.fullArtImage, c.character?.image].filter(Boolean)),
-].map((src) => {
-  const img = new Image();
-  img.src = src;
-  img.decode?.().catch(() => {});
-  return img;
-});
+// 装配封面吉祥物并预解码全部贴图（单词模式跳过，省掉 12 张角色图解码）
+let packEyes = [];
+let packPupils = [];
+let preloadedImages = [];
+if (!WORD_MODE) {
+  mascotSlot.innerHTML = buildRigMarkup(MASCOT_CONFIG, { withShadow: true, withOuch: true });
+  packEyes = [...mascotSlot.querySelectorAll('.rig-eye')];
+  packPupils = [...mascotSlot.querySelectorAll('.rig-pupil')];
+  preloadedImages = [
+    MASCOT_CONFIG.image,
+    ...CARD_POOL.flatMap((c) => [c.fullArtImage, c.character?.image].filter(Boolean)),
+  ].map((src) => {
+    const img = new Image();
+    img.src = src;
+    img.decode?.().catch(() => {});
+    return img;
+  });
+}
 void preloadedImages;
 
 /* ---------- 阻尼弹簧求解器 ---------- */

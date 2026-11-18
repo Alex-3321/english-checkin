@@ -63,11 +63,12 @@ async function init() {
 
   const saved = readSaved();
   if (saved && saved.day === state.day) {
-    titleEl.textContent = `继续打开第 ${saved.pack_no} 包`;
+    titleEl.textContent = `正在恢复第 ${saved.pack_no} 包`;
     subEl.textContent = `还剩 ${saved.words.length} 张卡没看`;
     leftEl.textContent = '这一包已经抽过，不会重复扣次数';
-    startBtn.textContent = '继续打开这一包';
-    startBtn.addEventListener('click', () => launch(saved), { once: true });
+    startBtn.textContent = '正在恢复…';
+    startBtn.disabled = true;
+    launch(saved);
     return;
   }
   if (saved) { try { sessionStorage.removeItem(KEY); } catch (e) {} }
@@ -104,5 +105,7 @@ async function init() {
     }
   }, { once: true });
 }
+
+window.addEventListener('pageshow', (e) => { if (e.persisted) location.reload(); });
 
 init();
