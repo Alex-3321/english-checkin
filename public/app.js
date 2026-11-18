@@ -609,7 +609,7 @@ async function loadCollection() {
   }));
 }
 
-/* ---------- 三关背诵 ---------- */
+/* ---------- 三关背诵（5 词轮转） ---------- */
 async function fetchPack(ap) {
   return api(`/api/words/pack?day=${encodeURIComponent(ap.day)}&pack_no=${ap.pack_no}`);
 }
@@ -626,20 +626,38 @@ async function loadStudy() {
   const d = await fetchPack(ap);
   const st = wordState.study;
   st.day = d.day; st.pack_no = d.pack_no;
-  st.total = d.words.length;
-  st.q1 = d.words.filter((w) => w.stage === 0);
-  st.q2 = d.words.filter((w) => w.stage === 1);
-  st.q3 = d.words.filter((w) => w.stage === 2);
-  st.done = d.words.filter((w) => w.stage >= 3).length;
+  st.words = d.words.map((w) => ({ ...w }));
+  st.total = st.words.length;
+  st.cursor = st.words.findIndex((w) => w.stage < 3);
+  if (st.cursor < 0) st.cursor = 0;
+  st.done = st.words.filter((w) => w.stage >= 3).length;
   st.points = 0;
-  st.current = null;
   renderStage();
 }
 
-function studyStats() {
+function nextIndex() {
   const st = wordState.study;
-  $('#studyProgress').textContent = `第 ${Math.min(st.done + 1, st.total)} / ${st.total} 个`;
-  $('#studyScore').textContent = `已过 ${st.done} / ${st.total}`;
+  for (let n = 0; n < st.words.length; n++) {
+    const i = (st.cursor + n) % st.words.length;
+    if (st.words[i].stage < 3) return i;
+  }
+  return -1;
+}
+
+function advance() {
+  const st = wordState.study;
+  st.cursor = (st.cursor + 1) % st.words.length;
+  renderStage();
+}
+
+function renderDots() {
+  const st = wordState.study;
+  const box = $('#studyDots');
+  if (!box) return;
+  box.innerHTML = st.words.map((w) => {
+    const cls = w.stage >= 3 ? 'is-done' : w.stage === 2 ? 'is-s3' : w.stage === 1 ? 'is-s2' : 'is-s1';
+    return `<i class="word-dot ${cls}"></i>`;
+  }).join('');
 }
 
 function showStudyDone() {
@@ -662,26 +680,27 @@ function answerCardHTML(w) {
     ${w.ex2 ? `<div class="ans-line">例句：${esc(w.ex2)}</div>` : ''}`;
 }
 
-/* 当前关卡与阶段 */
 function renderStage() {
   const st = wordState.study;
-  const wrap = $('#studyWrap');
   $('#studyDone').hidden = true;
-  wrap.hidden = false;
+  $('#studyWrap').hidden = false;
 
-  let word = null, stage = 0;
-  if (st.q1.length) { word = st.q1[0]; stage = 0; }
-  else if (st.q2.length) { word = st.q2[0]; stage = 1; }
-  else if (st.q3.length) { word = st.q3[0]; stage = 2; }
-  else { showStudyDone(); return; }
-
+  const idx = nextIndex();
+  if (idx < 0) { showStudyDone(); return; }
+  st.cursor = idx;
+  const word = st.words[idx];
+  const stage = word.stage;
   st.current = word;
-  st.stage = stage;
-  st.phase = 'question';
   st.pending = null;
+  st.phase = 'question';
+  st.done = st.words.filter((w) => w.stage >= 3).length;
 
   $('#studyStage').textContent = ['第 1 关 · 选意思', '第 2 关 · 例句回忆', '第 3 关 · 只看单词'][stage];
   $('#studyHint').textContent = ['选择正确的中文释义', '看例句，回忆它是什么意思', '只看单词，回忆它的意思'][stage];
+  $('#studyProgress').textContent = `当前第 ${idx + 1} 个词`;
+  $('#studyScore').textContent = `已过 ${st.done} / ${st.total}`;
+  renderDots();
+
   $('#studyWord').textContent = word.w;
   $('#studyWord').style.fontSize = stage === 2 ? '54px' : '';
   $('#studyPos').textContent = stage === 0 ? (word.pos || '') : '';
@@ -690,7 +709,6 @@ function renderStage() {
   $('#studyOpts').innerHTML = '';
   $('#studyExample').hidden = true;
   $('#studyRecall').hidden = true;
-  studyStats();
 
   if (stage === 0) {
     $('#studyOpts').innerHTML = word.options.map((o) => `<button type="button" data-opt="${esc(o)}">${esc(o)}</button>`).join('');
@@ -702,6 +720,7 @@ function renderStage() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ word_id: word.id, choice: btn.dataset.opt }),
         });
+        if (r.correct) word.stage = 1;
         st.pending = { correct: r.correct };
         $('#studyOpts').querySelectorAll('[data-opt]').forEach((b) => {
           if (b.dataset.opt === word.zh) b.classList.add('is-right');
@@ -730,21 +749,14 @@ function showAnswerCard(word, stage) {
   const box = $('#studyAnswer');
   box.hidden = false;
   const pending = st.pending || {};
-  let actions = '';
-  if (stage === 0) {
-    actions = `<button type="button" class="btn btn-primary" id="ansNext">下一个</button>`;
-  } else {
-    actions = `<button type="button" class="btn btn-line" id="ansWrong">记错了</button>
-               <button type="button" class="btn btn-primary" id="ansNext">下一个词</button>`;
-  }
+  const actions = stage === 0
+    ? `<button type="button" class="btn btn-primary" id="ansNext">下一个</button>`
+    : `<button type="button" class="btn btn-line" id="ansWrong">记错了</button>
+       <button type="button" class="btn btn-primary" id="ansNext">下一个词</button>`;
   box.innerHTML = `${answerCardHTML(word)}<div class="ans-actions">${actions}</div>`;
 
   if (stage === 0) {
-    $('#ansNext').onclick = () => {
-      if (pending.correct) { st.q1.shift(); word.stage = 1; st.q2.push(word); }
-      else { st.q1.shift(); st.q1.push(word); }
-      renderStage();
-    };
+    $('#ansNext').onclick = () => advance();
     return;
   }
 
@@ -754,28 +766,22 @@ function showAnswerCard(word, stage) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ word_id: word.id, remembered }),
       });
-      const queue = stage === 1 ? st.q2 : st.q3;
-      const i = queue.indexOf(word);
-      if (i >= 0) queue.splice(i, 1);
-      if (remembered) {
-        word.stage = r.stage;
-        if (r.stage === 2) st.q3.push(word);
-        if (r.stage >= 3) {
-          st.done++;
-          if (r.gained) { st.points += r.gained; toast(`已背完 +${r.gained} 分`); }
-        }
-      } else {
-        word.stage = 0;
-        st.q1.unshift(word);
+      word.stage = r.stage;
+      if (r.stage >= 3) {
+        if (r.gained) { st.points += r.gained; toast(`已背完 +${r.gained} 分`); }
+      } else if (!remembered) {
         toast('已回到第 1 关');
       }
-      renderStage();
+      advance();
     } catch (e) { $('#studyFeedback').textContent = e.message; }
   };
 
   $('#ansNext').onclick = () => submit(pending.remembered !== false);
   $('#ansWrong').onclick = () => submit(false);
 }
+
+$('#goSpell').addEventListener('click', () => { location.hash = '#/wordspell'; });
+$('#backBook').addEventListener('click', () => { location.hash = '#/wordbook'; });
 
 /* ---------- 拼写关 ---------- */
 async function loadSpell() {

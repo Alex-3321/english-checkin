@@ -1,5 +1,10 @@
 import { PACK_BRAND, PACK_THEMES, RARITY_META, MASCOT_CONFIG, CARD_POOL } from './cards-config.js?v=5';
 
+const MOBILE_PERF = typeof window !== 'undefined' &&
+  window.matchMedia && window.matchMedia('(max-width: 720px), (pointer: coarse)').matches;
+if (typeof document !== 'undefined') document.body.classList.toggle('mobile-perf', MOBILE_PERF);
+const DPR_CAP = MOBILE_PERF ? 1.25 : (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches ? 1.5 : 2);
+
 const WORD_PACK = (typeof window !== 'undefined' && window.__WORD_PACK__) || null;
 const WORD_MODE = !!(WORD_PACK && Array.isArray(WORD_PACK.words));
 const escHtml = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -592,7 +597,7 @@ let packHeight = 406;
 function measureStage() {
   packWidth = pack.offsetWidth || 280;
   packHeight = pack.offsetHeight || 406;
-  const dpr = Math.min(isCoarsePointer ? 1.5 : 2, window.devicePixelRatio || 1);
+  const dpr = Math.min(DPR_CAP, window.devicePixelRatio || 1);
   confettiCanvas.width = Math.floor(window.innerWidth * dpr);
   confettiCanvas.height = Math.floor(window.innerHeight * dpr);
 }
@@ -2055,7 +2060,19 @@ againBtn.addEventListener('click', (e) => {
 });
 
 /* ---------- 主渲染循环 ---------- */
+let lastPaintMs = 0;
+let interactUntil = 0;
+function markInteraction() { interactUntil = performance.now() + 400; }
+
 function tick(nowMs) {
+  if (MOBILE_PERF && !document.hidden) {
+    const interacting = performance.now() < interactUntil;
+    if (!interacting && nowMs - lastPaintMs < 1000 / 30) {
+      requestAnimationFrame(tick);
+      return;
+    }
+  }
+  lastPaintMs = nowMs;
   const dt = Math.min(0.05, (nowMs - lastFrameMs) / 1000);
   lastFrameMs = nowMs;
   clockSec += dt;
@@ -2524,7 +2541,7 @@ function startAmbientDust() {
   let w = 0, h = 0, dpr = 1;
   const resize = () => {
     w = c.clientWidth; h = c.clientHeight;
-    dpr = Math.min(2, window.devicePixelRatio || 1);
+    dpr = Math.min(DPR_CAP, window.devicePixelRatio || 1);
     c.width = Math.max(1, w * dpr); c.height = Math.max(1, h * dpr);
   };
   resize();
@@ -2566,6 +2583,11 @@ if (WORD_MODE) {
     location.href = '/#/wordbook';
   });
 }
+
+['pointerdown', 'pointermove', 'touchstart', 'touchmove', 'wheel'].forEach((ev) => {
+  window.addEventListener(ev, markInteraction, { passive: true });
+});
+document.addEventListener('visibilitychange', () => { lastFrameMs = performance.now(); lastPaintMs = 0; });
 
 measureStage();
 enterFreshPack();

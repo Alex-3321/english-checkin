@@ -1033,8 +1033,8 @@ body > * { position: relative; z-index: 1; }
 .study-example{margin:16px 0 0;padding:12px 14px;border-left:2px solid var(--gold);
   background:rgba(185,146,63,.08);font-size:14px;line-height:1.8;color:var(--ink)}
 .study-example b{color:var(--gold)}
-.study-recall{display:flex;gap:10px;margin-top:22px}
-.study-recall .btn{flex:1;padding:14px 0;font-size:14px}
+.study-recall{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:22px;align-items:stretch}
+.study-recall .btn{width:100%;min-height:48px;margin:0;padding:14px 0;font-size:14px;line-height:1;border-radius:2px}
 .spell-zh{font-size:26px;font-weight:700;color:var(--ink);margin:4px 0 2px}
 .spell-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
 .spell-actions .btn{flex:1;min-width:90px}
@@ -1055,3 +1055,10 @@ body > * { position: relative; z-index: 1; }
 .ans-line{font-size:12.5px;color:var(--faint);margin-top:6px;line-height:1.6}
 .ans-actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
 .ans-actions .btn{flex:1;min-width:120px}
+
+/* 5 词进度点 */
+.word-dots{display:flex;gap:8px;margin:2px 0 12px}
+.word-dot{width:8px;height:8px;border-radius:50%;background:rgba(26,54,45,.18);display:inline-block}
+.word-dot.is-s2{background:rgba(185,146,63,.55)}
+.word-dot.is-s3{background:rgba(26,54,45,.65)}
+.word-dot.is-done{background:var(--gold)}
