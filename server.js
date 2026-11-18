@@ -168,6 +168,45 @@ db.exec(`
   if (!ucols.includes('allow_multi_device')) db.exec('ALTER TABLE users ADD COLUMN allow_multi_device INTEGER NOT NULL DEFAULT 0');
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS articles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      title_en TEXT, title_cn TEXT, level TEXT, intro_cn TEXT,
+      body_json TEXT NOT NULL,
+      summary_cn TEXT,
+      source TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(user_id, day, seq),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS article_reads (
+      user_id INTEGER NOT NULL,
+      article_id INTEGER NOT NULL,
+      seconds INTEGER NOT NULL DEFAULT 0,
+      points INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT,
+      PRIMARY KEY (user_id, article_id)
+    );
+    CREATE TABLE IF NOT EXISTS read_daily (
+      user_id INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      seconds INTEGER NOT NULL DEFAULT 0,
+      points INTEGER NOT NULL DEFAULT 0,
+      last_at TEXT,
+      PRIMARY KEY (user_id, day)
+    );
+    CREATE TABLE IF NOT EXISTS read_quota (
+      user_id INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      generated INTEGER NOT NULL DEFAULT 0,
+      refreshed INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, day)
+    );
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS appeals (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       record_id    INTEGER NOT NULL,
@@ -201,6 +240,7 @@ db.exec(`
 /* ---------------- 时间（严格 Asia/Shanghai，存储即北京时间） ---------------- */
 const bd = require('./lib/business-day');
 const aiGrader = require('./lib/ai-grader');
+const articleGen = require('./lib/ai-article');
 const aiQueue = require('./lib/ai-queue');
 const { nowDate, partsCN, businessDay, minutesOfDay, minutesToHHMM } = bd;
 
@@ -400,6 +440,108 @@ function quarterScore(uid) {
     SELECT COALESCE(SUM(points),0) s
     FROM records WHERE user_id=? AND created_at>=? AND deleted_at IS NULL`).get(uid, seasonCutoff());
   return row ? row.s : 0;
+}
+
+/* ================= 沉浸阅读 ================= */
+const READ = { perMinute: 1, perArticleCap: 6, dailyCap: 12, refreshLimit: 3, generateLimit: 10 };
+const DAY_MS = 864e5;
+
+function readQuota(uid, day) {
+  let q = db.prepare('SELECT * FROM read_quota WHERE user_id=? AND day=?').get(uid, day);
+  if (!q) {
+    db.prepare('INSERT INTO read_quota (user_id,day,generated,refreshed) VALUES (?,?,0,0)').run(uid, day);
+    q = { generated: 0, refreshed: 0 };
+  }
+  return q;
+}
+
+function readDaily(uid, day) {
+  let r = db.prepare('SELECT * FROM read_daily WHERE user_id=? AND day=?').get(uid, day);
+  if (!r) {
+    db.prepare('INSERT INTO read_daily (user_id,day,seconds,points) VALUES (?,?,0,0)').run(uid, day);
+    r = { seconds: 0, points: 0, last_at: null };
+  }
+  return r;
+}
+
+function articleRow(row) {
+  const body = JSON.parse(row.body_json);
+  const read = db.prepare('SELECT seconds,points FROM article_reads WHERE user_id=? AND article_id=?').get(row.user_id, row.id) || { seconds: 0, points: 0 };
+  return {
+    id: row.id, day: row.day, seq: row.seq,
+    title_en: row.title_en, title_cn: row.title_cn, level: row.level,
+    intro_cn: row.intro_cn, summary_cn: row.summary_cn, source: row.source,
+    paragraphs: body, created_at: row.created_at,
+    read_seconds: read.seconds, points: read.points,
+  };
+}
+
+function readProgress(uid, day, article) {
+  const daily = readDaily(uid, day);
+  const q = readQuota(uid, day);
+  return {
+    day,
+    daily_seconds: daily.seconds,
+    daily_points: daily.points,
+    daily_cap: READ.dailyCap,
+    article_points: article ? article.points : 0,
+    article_cap: READ.perArticleCap,
+    article_seconds: article ? article.read_seconds : 0,
+    generated: q.generated,
+    generate_limit: READ.generateLimit,
+    refreshed: q.refreshed,
+    refresh_limit: READ.refreshLimit,
+  };
+}
+
+async function createArticle(uid, day, seq) {
+  const art = await articleGen.generateArticle();
+  const info = db.prepare(`INSERT INTO articles (user_id,day,seq,title_en,title_cn,level,intro_cn,body_json,summary_cn,source,created_at)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(uid, day, seq, art.title_en, art.title_cn, art.level, art.intro_cn,
+         JSON.stringify(art.paragraphs), art.summary_cn, art.source || '内置文章库', nowCN());
+  const row = db.prepare('SELECT * FROM articles WHERE id=?').get(Number(info.lastInsertRowid));
+  return articleRow(row);
+}
+
+function dayList(day, n) {
+  const out = [];
+  const base = new Date(`${day}T12:00:00+08:00`).getTime();
+  for (let i = 0; i < n; i++) out.push(new Date(base - i * DAY_MS).toISOString().slice(0, 10));
+  return out;
+}
+
+function readHistory(uid, n) {
+  const days = dayList(businessDay(), n || 3);
+  const rows = db.prepare(`SELECT * FROM articles WHERE user_id=? AND day IN (${days.map(() => '?').join(',')}) ORDER BY day DESC, seq DESC`)
+    .all(uid, ...days);
+  const byDay = new Map(days.map((d) => [d, []]));
+  for (const r of rows) {
+    const d = byDay.get(r.day);
+    if (d) d.push({ id: r.id, seq: r.seq, title_en: r.title_en, title_cn: r.title_cn, level: r.level, source: r.source, created_at: r.created_at });
+  }
+  return days.map((d) => ({ day: d, items: byDay.get(d) }));
+}
+
+/* 阅读积分结算：每分钟 1 分，单篇封顶 6，每日封顶 12 */
+function settleReading(uid, day, articleId, addSeconds) {
+  const daily = readDaily(uid, day);
+  const rec = db.prepare('SELECT * FROM article_reads WHERE user_id=? AND article_id=?').get(uid, articleId)
+    || { seconds: 0, points: 0 };
+  const newDailySeconds = daily.seconds + addSeconds;
+  const newArticleSeconds = rec.seconds + addSeconds;
+
+  const articlePts = Math.min(READ.perArticleCap, Math.floor(newArticleSeconds / 60) * READ.perMinute);
+  const dailyPts = Math.min(READ.dailyCap, Math.floor(newDailySeconds / 60) * READ.perMinute);
+  const gain = Math.max(0, Math.min(articlePts - rec.points, dailyPts - daily.points));
+
+  db.prepare(`INSERT INTO article_reads (user_id,article_id,seconds,points,updated_at) VALUES (?,?,?,?,?)
+              ON CONFLICT(user_id,article_id) DO UPDATE SET seconds=excluded.seconds, points=excluded.points, updated_at=excluded.updated_at`)
+    .run(uid, articleId, newArticleSeconds, rec.points + gain, nowCN());
+  db.prepare(`UPDATE read_daily SET seconds=?, points=?, last_at=? WHERE user_id=? AND day=?`)
+    .run(newDailySeconds, daily.points + gain, nowCN(), uid, day);
+  if (gain > 0) db.prepare('UPDATE users SET total_score = total_score + ? WHERE id=?').run(gain, uid);
+  return { gain, seconds: newDailySeconds, points: daily.points + gain, article_points: rec.points + gain };
 }
 /* 是否在当前「业务日」已有该类型记录 */
 function hasToday(uid, type) {
@@ -657,6 +799,9 @@ async function handleApi(req, res, url) {
       FROM users u LEFT JOIN records r ON r.user_id=u.id AND r.created_at>=? AND r.deleted_at IS NULL
       WHERE u.role='student' AND COALESCE(u.is_hidden,0)=0
       GROUP BY u.id ORDER BY score DESC, u.total_score DESC, u.created_at ASC`).all(seasonCutoff());
+    const readMap = new Map(db.prepare('SELECT user_id, SUM(points) s FROM read_daily WHERE day>=? GROUP BY user_id')
+      .all(seasonCutoff().slice(0, 10)).map((x) => [x.user_id, x.s]));
+    for (const r of rows) r.score += readMap.get(r.id) || 0;
     /* 历史平均打卡时间：用真实点击时间戳（北京时间 HH:mm）求平均，早起者更早 */
     const acc = new Map();
     for (const c of db.prepare("SELECT user_id, created_at FROM records WHERE type='checkin' AND deleted_at IS NULL").all()) {
@@ -729,6 +874,81 @@ async function handleApi(req, res, url) {
                                    level: x.level, points: x.points, appeal_status: x.appeal_status })),
       quarter_score: quarterScore(id),
     });
+  }
+
+
+  /* ================= 沉浸阅读 ================= */
+  if (p === '/api/read/today' && method === 'GET') {
+    const day = businessDay();
+    const latest = db.prepare('SELECT * FROM articles WHERE user_id=? AND day=? ORDER BY seq DESC LIMIT 1').get(me.id, day);
+    let article = latest ? articleRow(latest) : null;
+    if (!article) {
+      const q = readQuota(me.id, day);
+      if (q.generated < READ.generateLimit) {
+        db.prepare('UPDATE read_quota SET generated=generated+1 WHERE user_id=? AND day=?').run(me.id, day);
+        article = await createArticle(me.id, day, q.generated + 1);
+      }
+    }
+    return sendJSON(res, 200, {
+      article,
+      progress: readProgress(me.id, day, article),
+      history: readHistory(me.id, 3),
+    });
+  }
+
+  if (p === '/api/read/refresh' && method === 'POST') {
+    const day = businessDay();
+    const q = readQuota(me.id, day);
+    if (q.refreshed >= READ.refreshLimit) return sendJSON(res, 429, { error: `每天最多刷新 ${READ.refreshLimit} 次` });
+    if (q.generated >= READ.generateLimit) return sendJSON(res, 429, { error: '今日文章额度已用完' });
+    db.prepare('UPDATE read_quota SET generated=generated+1, refreshed=refreshed+1 WHERE user_id=? AND day=?').run(me.id, day);
+    const article = await createArticle(me.id, day, q.generated + 1);
+    return sendJSON(res, 200, {
+      article,
+      progress: readProgress(me.id, day, article),
+      history: readHistory(me.id, 3),
+    });
+  }
+
+  if (p === '/api/read/report' && method === 'POST') {
+    const b = JSON.parse((await readBody(req)).toString() || '{}');
+    const aid = Number(b.article_id);
+    const claim = Math.max(0, Math.min(60, Number(b.seconds) || 0));
+    const day = businessDay();
+    const art = db.prepare('SELECT * FROM articles WHERE id=? AND user_id=?').get(aid, me.id);
+    if (!art || art.day !== day) return sendJSON(res, 400, { error: '文章不存在或已过期' });
+
+    const daily = readDaily(me.id, day);
+    let allowed = claim;
+    if (daily.last_at) {
+      const elapsed = (Date.now() - new Date(daily.last_at).getTime()) / 1000;
+      allowed = Math.min(claim, Math.max(0, elapsed + 3));   /* 真实时间差封顶，防刷 */
+    }
+    const add = Math.max(0, Math.round(allowed));
+    const result = add > 0 ? settleReading(me.id, day, aid, add) : { gain: 0, seconds: daily.seconds, points: daily.points };
+    db.prepare('UPDATE read_daily SET last_at=? WHERE user_id=? AND day=?').run(nowCN(), me.id, day);
+    const article = articleRow(db.prepare('SELECT * FROM articles WHERE id=?').get(aid));
+    return sendJSON(res, 200, { ...result, progress: readProgress(me.id, day, article), article_points: article.points });
+  }
+
+
+  if (p === '/api/read/status' && method === 'GET') {
+    const day = businessDay();
+    const latest = db.prepare('SELECT * FROM articles WHERE user_id=? AND day=? ORDER BY seq DESC LIMIT 1').get(me.id, day);
+    return sendJSON(res, 200, { progress: readProgress(me.id, day, latest ? articleRow(latest) : null) });
+  }
+
+  const mReadArticle = /^\/api\/read\/article\/(\d+)$/.exec(p);
+  if (mReadArticle && method === 'GET') {
+    const row = db.prepare('SELECT * FROM articles WHERE id=? AND user_id=?').get(Number(mReadArticle[1]), me.id);
+    if (!row) return sendJSON(res, 404, { error: '文章不存在' });
+    const days = dayList(businessDay(), 3);
+    if (!days.includes(row.day)) return sendJSON(res, 404, { error: '该文章已超过 3 天，无法查阅' });
+    return sendJSON(res, 200, { article: articleRow(row), archived: row.day !== businessDay() });
+  }
+
+  if (p === '/api/read/history' && method === 'GET') {
+    return sendJSON(res, 200, { days: readHistory(me.id, 3) });
   }
 
   /* 站内通知 */

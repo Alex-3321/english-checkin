@@ -851,3 +851,46 @@ body > * { position: relative; z-index: 1; }
 .admin-user-box h3 small{font-size:12px;font-weight:400;color:var(--faint);margin-left:6px;letter-spacing:.04em}
 .admin-user-box .lede{margin:0 0 14px;font-size:12.5px;color:var(--faint)}
 .admin-user-box .album{grid-template-columns:repeat(auto-fill,minmax(88px,1fr))}
+
+/* ---------- 沉浸阅读 ---------- */
+.read-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:8px}
+.read-kicker{margin:0 0 8px;font-size:10px;letter-spacing:.3em;color:var(--gold);text-transform:uppercase}
+.read-title{margin:0;font-size:26px;line-height:1.35;letter-spacing:-.01em}
+.read-subtitle{margin:4px 0 0;font-size:13px;letter-spacing:.04em;color:var(--faint)}
+.read-chips{display:flex;gap:8px;flex-wrap:wrap}
+.read-chip{font-size:11px;letter-spacing:.1em;padding:3px 9px;border:1px solid var(--line-strong);color:var(--ink)}
+.read-chip.is-gold{border-color:rgba(185,146,63,.5);color:var(--gold);font-variant-numeric:tabular-nums}
+.read-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+  border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:10px 0;margin:14px 0 22px}
+.seg{display:inline-flex;border:1px solid var(--line-strong)}
+.seg button{background:none;border:0;padding:6px 14px;font:inherit;font-size:12px;color:var(--faint);cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.is-on{background:var(--ink);color:var(--paper)}
+.read-actions{display:flex;gap:8px}
+.read-archive-hint{margin:0 0 16px;padding:8px 12px;border-left:2px solid var(--gold);
+  background:rgba(185,146,63,.08);font-size:12px;color:var(--gold)}
+.read-article{max-width:660px;font-family:Georgia,"Times New Roman","Songti SC",serif;font-size:17.5px;line-height:1.95;color:var(--ink)}
+.read-article .rp{margin:0 0 22px}
+.read-article .rp-zh{margin:-12px 0 24px;font-size:14.5px;line-height:1.8;color:var(--faint);
+  font-family:-apple-system,"PingFang SC",sans-serif;padding-left:12px;border-left:2px solid var(--line)}
+.rp-sent{margin:0 0 20px}
+.read-article .rps{margin:0 0 14px}
+.read-article .rps-en{display:block}
+.read-article .rps-zh{display:block;margin-top:2px;font-size:14px;line-height:1.7;color:var(--faint);
+  font-family:-apple-system,"PingFang SC",sans-serif}
+.read-summary{max-width:660px;margin:28px 0 0;padding:18px 20px;border:1px solid var(--line);background:rgba(26,54,45,.035)}
+.rs-kicker{margin:0 0 8px;font-size:10px;letter-spacing:.28em;color:var(--gold);text-transform:uppercase}
+.rs-text{margin:0;font-size:14px;line-height:1.85}
+.read-source{max-width:660px;margin:18px 0 0;font-size:11.5px;color:var(--faint);letter-spacing:.02em}
+.read-history{max-width:660px;margin:26px 0 0;border-top:1px solid var(--line);padding-top:16px}
+.rh-kicker{margin:0 0 12px;font-size:10px;letter-spacing:.28em;color:var(--gold);text-transform:uppercase}
+.rh-day{margin-bottom:14px}
+.rh-day-label{margin:0 0 6px;font-size:11.5px;color:var(--faint);letter-spacing:.06em}
+.rh-item{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;
+  background:none;border:0;border-bottom:1px dashed var(--line);padding:8px 0;cursor:pointer;font:inherit}
+.rh-item:hover .rh-title{color:var(--gold)}
+.rh-title{font-size:13.5px;font-weight:600;color:var(--ink)}
+.rh-en{font-size:11.5px;color:var(--faint);letter-spacing:.02em}
+.rh-empty{margin:0 0 8px;font-size:12px;color:var(--faint)}
+.read-stat{margin:8px 0 0;font-size:12px;color:var(--faint);letter-spacing:.02em}
+.read-loading{font-family:-apple-system,"PingFang SC",sans-serif;font-size:13.5px;color:var(--faint);padding:40px 0}

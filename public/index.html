@@ -18,6 +18,7 @@
   <nav class="nav" id="tabs" hidden>
     <button class="nav-item" data-route="home">打卡</button>
     <button class="nav-item" data-route="rank">排行</button>
+    <button class="nav-item" data-route="read">阅读</button>
     <button class="nav-item" data-route="friends">好友<span class="nav-badge" id="reqBadge" hidden></span></button>
     <button class="nav-item" data-route="me">我的</button>
     <button class="nav-item nav-admin" data-route="admin" hidden>后台<span class="nav-badge" id="adminBadge" hidden></span></button>
@@ -188,6 +189,7 @@
           <p class="rank-hint" id="meRankHint">—</p>
         </div>
         <div class="profile-stats" id="meStats"></div>
+        <p class="read-stat" id="meReadStat"></p>
       </div>
     </div>
 
@@ -242,6 +244,39 @@
     </div>
     <div class="album" id="otherAlbum"></div>
     <p class="empty" id="otherAlbumEmpty" hidden>该用户未公开打卡记录。</p>
+  </section>
+
+  <!-- 阅读 -->
+  <section id="view-read" class="view" hidden>
+    <div class="read-head">
+      <div>
+        <p class="read-kicker">DAILY READING · 每日精读</p>
+        <h2 class="read-title" id="readTitleCn">—</h2>
+        <p class="read-subtitle" id="readTitleEn">—</p>
+      </div>
+      <div class="read-chips">
+        <span class="read-chip" id="readLevel">—</span>
+        <span class="read-chip is-gold" id="readTimer">今日 0 / 12 分</span>
+      </div>
+    </div>
+
+    <div class="read-toolbar">
+      <div class="seg" id="transMode">
+        <button type="button" data-tm="off" class="is-on">无翻译</button>
+        <button type="button" data-tm="sentence">逐句</button>
+        <button type="button" data-tm="para">整段</button>
+      </div>
+      <div class="read-actions">
+        <button type="button" class="btn btn-line" id="refreshArticle">换一篇</button>
+        <button type="button" class="btn btn-line" id="readHistoryBtn">往期</button>
+      </div>
+    </div>
+
+    <div class="read-archive-hint" id="readArchiveHint" hidden></div>
+    <article class="read-article" id="readBody"></article>
+    <div class="read-summary" id="readSummary" hidden></div>
+    <p class="read-source" id="readSource"></p>
+    <div class="read-history" id="readHistory" hidden></div>
   </section>
 
   <!-- 好友 -->

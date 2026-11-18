@@ -132,7 +132,7 @@ async function loadSiteTitle() {
 }
 
 /* ================= 路由 ================= */
-const ROUTES = ['auth', 'home', 'rank', 'me', 'user', 'friends', 'chat', 'admin'];
+const ROUTES = ['auth', 'home', 'rank', 'read', 'me', 'user', 'friends', 'chat', 'admin'];
 
 function showView(name) {
   ROUTES.forEach((v) => { const el = $(`#view-${v}`); if (el) el.hidden = v !== name; });
@@ -165,6 +165,7 @@ async function router() {
   try {
     if (route === 'home') { showView('home'); await loadHome(); }
     else if (route === 'rank') { showView('rank'); renderSkeleton($('#rankList')); await loadRank(); }
+    else if (route === 'read') { showView('read'); await loadRead(); }
     else if (route === 'me') { showView('me'); await loadMe(); }
     else if (route === 'user' && param) { showView('user'); await loadUser(Number(param)); }
     else if (route === 'friends') { showView('friends'); await loadFriends(); }
@@ -523,6 +524,172 @@ $('#announceOk').addEventListener('click', () => {
   if (location.hash !== '#/me') location.hash = '#/me';
 });
 
+
+/* ================= 沉浸阅读 ================= */
+const readState = { article: null, progress: null, mode: 'off', archived: false, timer: null, history: [] };
+
+function stopReadTimer() {
+  if (readState.timer) { clearInterval(readState.timer); readState.timer = null; }
+}
+
+function startReadTimer() {
+  stopReadTimer();
+  readState.timer = setInterval(readTick, 10000);
+}
+
+async function readTick() {
+  if (document.visibilityState !== 'visible') return;
+  if (parseHash().route !== 'read') return;
+  if (!readState.article || readState.archived) return;
+  const p = readState.progress;
+  if (p && p.daily_points >= p.daily_cap) return;
+  try {
+    const r = await api('/api/read/report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ article_id: readState.article.id, seconds: 10 }),
+    });
+    readState.progress = r.progress;
+    readState.article.points = r.article_points;
+    updateReadProgress();
+  } catch (e) { /* 静默：网络抖动不影响阅读 */ }
+}
+
+function updateReadProgress() {
+  const p = readState.progress;
+  if (!p) return;
+  const mins = Math.floor(p.daily_seconds / 60);
+  $('#readTimer').textContent = `今日 ${mins} 分钟 · ${p.daily_points} / ${p.daily_cap} 分`;
+  const a = readState.article;
+  if (a) {
+    const ap = Math.min(p.article_cap, a.points || 0);
+    $('#readSource').textContent = `本篇已读 ${Math.floor((a.read_seconds || 0) / 60)} 分钟 · 本篇 ${ap} / ${p.article_cap} 分　|　出处：${a.source || '内置文章库'}`;
+  }
+}
+
+function readParagraphHTML(par, mode) {
+  if (mode === 'off') {
+    return `<p class="rp">${par.en.map(esc).join(' ')}</p>`;
+  }
+  if (mode === 'sentence') {
+    const n = Math.max(par.en.length, par.zh.length);
+    let out = '<div class="rp-sent">';
+    for (let i = 0; i < n; i++) {
+      out += `<p class="rps"><span class="rps-en">${esc(par.en[i] || '')}</span>`
+           + `<span class="rps-zh">${esc(par.zh[i] || '')}</span></p>`;
+    }
+    return out + '</div>';
+  }
+  return `<p class="rp">${par.en.map(esc).join(' ')}</p>`
+       + `<p class="rp-zh">${par.zh.map(esc).join('')}</p>`;
+}
+
+function renderArticle() {
+  const a = readState.article;
+  const body = $('#readBody');
+  if (!a) {
+    body.innerHTML = '<p class="empty">今天暂时没有文章，稍后再来。</p>';
+    $('#readTitleCn').textContent = '—';
+    $('#readTitleEn').textContent = '—';
+    $('#readSummary').hidden = true;
+    return;
+  }
+  $('#readTitleCn').textContent = a.title_cn;
+  $('#readTitleEn').textContent = a.title_en;
+  $('#readLevel').textContent = a.level || '四级';
+  body.innerHTML = a.paragraphs.map((par) => readParagraphHTML(par, readState.mode)).join('');
+
+  const sum = $('#readSummary');
+  if (a.summary_cn) {
+    sum.hidden = false;
+    sum.innerHTML = `<p class="rs-kicker">SUMMARY · 主旨</p><p class="rs-text">${esc(a.summary_cn)}</p>`;
+  } else sum.hidden = true;
+
+  $('#readSource').textContent = `出处：${a.source || '内置文章库'}`;
+  updateReadProgress();
+
+  const hint = $('#readArchiveHint');
+  if (readState.archived) {
+    hint.hidden = false;
+    hint.textContent = '归档阅读 · 往期文章不计分';
+  } else hint.hidden = true;
+}
+
+function renderReadHistory(days) {
+  readState.history = days || [];
+  const box = $('#readHistory');
+  const label = (d) => {
+    const today = new Date().toISOString().slice(0, 10);
+    if (d === days[0].day) return '今天';
+    return d === days[1].day ? '昨天' : '前天';
+  };
+  box.innerHTML = `<p class="rh-kicker">RECENT · 近三天</p>` + days.map((g, i) => `
+    <div class="rh-day">
+      <p class="rh-day-label">${['今天', '昨天', '前天'][i]} · ${g.day}</p>
+      ${g.items.length ? g.items.map((it) => `
+        <button type="button" class="rh-item" data-article="${it.id}">
+          <span class="rh-title">${esc(it.title_cn)}</span>
+          <span class="rh-en">${esc(it.title_en)}</span>
+        </button>`).join('') : '<p class="rh-empty">这天没有阅读记录</p>'}
+    </div>`).join('');
+  box.querySelectorAll('[data-article]').forEach((el) => el.addEventListener('click', async () => {
+    try {
+      const r = await api(`/api/read/article/${el.dataset.article}`);
+      readState.article = r.article;
+      readState.archived = true;
+      stopReadTimer();
+      renderArticle();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (e) { toast(e.message, true); }
+  }));
+}
+
+async function loadRead() {
+  $('#readBody').innerHTML = '<p class="read-loading">正在为你生成今天的文章…（约 10–20 秒）</p>';
+  $('#readTitleCn').textContent = 'Loading…';
+  $('#readTitleEn').textContent = 'Daily reading is being prepared';
+  $('#readSummary').hidden = true;
+  $('#readSource').textContent = '';
+  const d = await api('/api/read/today');
+  readState.article = d.article;
+  readState.progress = d.progress;
+  readState.archived = false;
+  renderArticle();
+  renderReadHistory(d.history);
+  startReadTimer();
+}
+
+$('#transMode').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-tm]');
+  if (!btn) return;
+  readState.mode = btn.dataset.tm;
+  $('#transMode').querySelectorAll('[data-tm]').forEach((b) => b.classList.toggle('is-on', b === btn));
+  renderArticle();
+});
+
+$('#refreshArticle').addEventListener('click', async () => {
+  const btn = $('#refreshArticle');
+  btn.disabled = true; btn.textContent = '生成中…';
+  try {
+    const d = await api('/api/read/refresh', { method: 'POST' });
+    readState.article = d.article;
+    readState.progress = d.progress;
+    readState.archived = false;
+    renderArticle();
+    renderReadHistory(d.history);
+    toast('已换一篇');
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = '换一篇'; }
+});
+
+$('#readHistoryBtn').addEventListener('click', () => {
+  const box = $('#readHistory');
+  box.hidden = !box.hidden;
+});
+
+document.addEventListener('visibilitychange', () => {
+  /* 切走时暂停，切回继续（不做惩罚，只防止后台挂机） */
+});
+
 /* ================= 排行榜 ================= */
 async function loadRank() {
   const d = await api('/api/leaderboard');
@@ -582,6 +749,10 @@ async function loadMe() {
   renderAlbum($('#myAlbum'), prof.photos, $('#myAlbumEmpty'), '还没有打卡照片，今天就开始吧。', d.user.id);
   $('#albumCount').textContent = `${prof.photos.length} 张`;
   loadMyAppeals().catch(() => {});
+  api('/api/read/status').then((r) => {
+    const p = r.progress;
+    $('#meReadStat').textContent = `今日阅读 ${Math.floor(p.daily_seconds / 60)} 分钟 · 获得 ${p.daily_points} 分（上限 ${p.daily_cap} 分）`;
+  }).catch(() => {});
 }
 
 function renderAlbum(box, photos, emptyEl, emptyText, ownerId) {
