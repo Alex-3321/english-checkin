@@ -4,7 +4,8 @@ const MOBILE_PERF = typeof window !== 'undefined' &&
   window.matchMedia && window.matchMedia('(max-width: 720px), (pointer: coarse)').matches;
 if (typeof document !== 'undefined') document.body.classList.toggle('mobile-perf', MOBILE_PERF);
 const MOBILE_FAST = typeof window !== 'undefined' && window.matchMedia &&
-  window.matchMedia('(max-width: 720px), (pointer: coarse)').matches;
+  window.matchMedia('(max-width: 720px), (pointer: coarse)').matches &&
+  !/[?&]classic=1/.test(location.search);
 if (typeof document !== 'undefined') document.body.classList.toggle('mobile-fast', MOBILE_FAST);
 const DPR_CAP = MOBILE_PERF ? 1.25 : (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches ? 1.5 : 2);
 
@@ -1868,6 +1869,7 @@ let mobileDownAt = null;
 function triggerMobileTear() {
   if (mobileTearing) return;
   mobileTearing = true;
+  try {
   if (stageState === 'enter') { clearTimeout(enterTimer); stageState = 'idle'; }
   activateTearingFeedback();
   for (const side of ['left', 'right']) {
@@ -1883,9 +1885,16 @@ function triggerMobileTear() {
     document.body.classList.remove('is-tearing');
     pack.querySelectorAll('.seal-piece').forEach((el) => el.remove());
     tearState.p.x = tearState.p.to = 1;
-    triggerPackBurst();
+    try { triggerPackBurst(); } catch (err) { console.error('[mobile tear]', err); }
     mobileTearing = false;
+    if (stageState !== 'open') {
+      try { triggerPackBurst(); } catch (err) { console.error('[mobile tear retry]', err); }
+    }
   }, 560);
+  } catch (err) {
+    console.error('[mobile tear start]', err);
+    mobileTearing = false;
+  }
 }
 
 grabZone.addEventListener('pointerdown', (e) => {
@@ -1893,16 +1902,8 @@ grabZone.addEventListener('pointerdown', (e) => {
     if (stageState === 'enter') { clearTimeout(enterTimer); stageState = 'idle'; }
     if (stageState !== 'idle' || mobileTearing) return;
     e.preventDefault();
-    mobileDownAt = { x: e.clientX, y: e.clientY };
-    const up = (ev) => {
-      grabZone.removeEventListener('pointerup', up);
-      grabZone.removeEventListener('pointercancel', up);
-      if (mobileTearing) return;
-      const dx = ev.clientX - mobileDownAt.x, dy = ev.clientY - mobileDownAt.y;
-      if (Math.hypot(dx, dy) >= 10 || ev.type === 'pointerup') triggerMobileTear();
-    };
-    grabZone.addEventListener('pointerup', up);
-    grabZone.addEventListener('pointercancel', up);
+    e.stopPropagation();
+    triggerMobileTear();
     return;
   }
   openedByKeyboard = false;
@@ -1985,6 +1986,7 @@ for (const evt of ['pointerup', 'pointercancel', 'lostpointercapture']) {
 }
 
 grabZone.addEventListener('click', (e) => {
+  if (MOBILE_FAST) return;
   if (didDragMove && e.detail) {
     didDragMove = false;
     return;
