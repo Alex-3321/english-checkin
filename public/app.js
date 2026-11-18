@@ -661,7 +661,16 @@ async function loadRead() {
   }
   $('#diffChoice').hidden = true;
   renderReadList(d);
+  if (state.me && state.me.role === 'super_admin') $('#switchLevel').hidden = false;
 }
+
+$('#switchLevel').addEventListener('click', () => {
+  $('#diffChoice').hidden = false;
+  $('#readList').hidden = true;
+  $('#readDetail').hidden = true;
+  $('#switchLevel').hidden = true;
+  stopReadTimer();
+});
 
 $('#diffChoice').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-level]');
@@ -675,7 +684,8 @@ $('#diffChoice').addEventListener('click', async (e) => {
     readState.difficulty = btn.dataset.level;
     $('#diffChoice').hidden = true;
     renderReadList(d);
-    toast(`今日难度：${btn.dataset.level}`);
+    if (state.me && state.me.role === 'super_admin') $('#switchLevel').hidden = false;
+    toast(`当前难度：${btn.dataset.level}`);
   } catch (err) { toast(err.message, true); }
   finally { btn.disabled = false; }
 });
