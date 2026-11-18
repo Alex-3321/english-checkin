@@ -206,6 +206,23 @@ db.exec(`
     const hi = db.prepare('UPDATE user_words SET pack_no=3 WHERE pack_no>3').run();
     db.exec('CREATE INDEX IF NOT EXISTS idx_user_words_pack ON user_words(user_id, day, pack_no)');
     console.log(`[migrate] pack_no 修正 ${moved} 行、>3 归一 ${hi.changes} 行`);
+
+    /* 历史数据：被合并的大包按 word_id 每 5 个一组重新分包，保留全部词 */
+    let regrouped = 0;
+    const groups = db.prepare('SELECT user_id, day FROM user_words GROUP BY user_id, day').all();
+    for (const g of groups) {
+      const rows = db.prepare('SELECT word_id, pack_no FROM user_words WHERE user_id=? AND day=? ORDER BY word_id').all(g.user_id, g.day);
+      const counts = new Map();
+      for (const r of rows) counts.set(r.pack_no, (counts.get(r.pack_no) || 0) + 1);
+      const need = [...counts.values()].some((c) => c > 5) || rows.some((r) => !(r.pack_no >= 1));
+      if (!need) continue;
+      rows.forEach((r, i) => {
+        db.prepare('UPDATE user_words SET pack_no=? WHERE user_id=? AND day=? AND word_id=?')
+          .run(Math.floor(i / 5) + 1, g.user_id, g.day, r.word_id);
+        regrouped++;
+      });
+    }
+    if (regrouped) console.log(`[migrate] 历史大包重排 ${regrouped} 行`);
   }
 
   const qcols = db.prepare('PRAGMA table_info(read_quota)').all().map((c) => c.name);
@@ -1109,8 +1126,8 @@ async function handleApi(req, res, url) {
     const unlimited = me.role === 'super_admin';
     return {
       day, draws: d.draws,
-      draws_left: unlimited ? 99 : Math.max(0, WORD_LIMIT - d.draws),
-      limit: unlimited ? 99 : WORD_LIMIT,
+      draws_left: unlimited ? null : Math.max(0, WORD_LIMIT - d.draws),
+      limit: unlimited ? null : WORD_LIMIT,
       unlimited,
       points_today: d.points,
       words,
@@ -1120,8 +1137,12 @@ async function handleApi(req, res, url) {
   function wordOptions(word) {
     const pool = WORDS.filter((x) => x.id !== word.id && x.zh !== word.zh);
     const picks = [];
+    const usedZh = new Set([word.zh]);
     while (picks.length < 3 && pool.length) {
-      picks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0].zh);
+      const cand = pool.splice(Math.floor(Math.random() * pool.length), 1)[0].zh;
+      if (usedZh.has(cand)) continue;
+      usedZh.add(cand);
+      picks.push(cand);
     }
     const opts = picks.concat(word.zh);
     for (let i = opts.length - 1; i > 0; i--) {
@@ -1135,7 +1156,7 @@ async function handleApi(req, res, url) {
     const w = WORDS[row.word_id - 1];
     if (!w) return null;
     return {
-      id: w.id, w: w.w, pos: w.pos, zh: w.zh, ex: w.ex, ex2: w.ex2,
+      id: w.id, w: w.w, phonetic: w.phonetic || '', pos: w.pos, zh: w.zh, ex: w.ex, ex2: w.ex2,
       phrase: w.phrase, phrase_zh: w.phrase_zh,
       stage: Number(row.stage) || 0, learned: !!row.learned, spell_done: !!row.spell_awarded,
       options: wordOptions(w),
@@ -1163,9 +1184,9 @@ async function handleApi(req, res, url) {
   if (p === '/api/words/draw' && method === 'POST') {
     const day = businessDay();
     const st = wordState(me.id, day);
-    if (st.draws_left <= 0) return sendJSON(res, 429, { error: `每天最多抽 ${WORD_LIMIT} 次` });
-    /* 超管用于测试：不限次数，包号循环 1→2→3 */
-    const packNo = st.unlimited ? ((st.draws % WORD_LIMIT) + 1) : clampPack(st.draws + 1);
+    if (!st.unlimited && st.draws_left <= 0) return sendJSON(res, 429, { error: `每天最多抽 ${WORD_LIMIT} 次` });
+    /* 每次抽卡都是一个新包：普通用户 1–3，管理员 1、2、3、4… 递增 */
+    const packNo = st.draws + 1;
     const owned = new Set(db.prepare('SELECT word_id FROM user_words WHERE user_id=?').all(me.id).map((r) => r.word_id));
     let pool = WORDS.filter((w) => !owned.has(w.id));
     if (pool.length < WORD_DRAW_SIZE) pool = WORDS.filter((w) => !st.words.some((x) => x.id === w.id));
@@ -1173,7 +1194,7 @@ async function handleApi(req, res, url) {
     while (picked.length < WORD_DRAW_SIZE && pool.length) {
       picked.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
     }
-    if (!picked.length) return sendJSON(res, 429, { error: '词库已抽完' });
+    if (!picked.length) return sendJSON(res, 429, { error: '词库已全部抽完' });
 
     withTx(() => {
       for (const w of picked) {
@@ -1205,7 +1226,7 @@ async function handleApi(req, res, url) {
     const packs = [];
     const map = new Map();
     for (const r of rows) {
-      const packNo = clampPack(r.pack_no);
+      const packNo = Math.max(1, Number(r.pack_no) || 1);
       const key = `${r.day}#${packNo}`;
       if (!map.has(key)) {
         const pk = { day: r.day, pack_no: packNo, words: [], learned: 0, spelled: 0, stages: { 0: 0, 1: 0, 2: 0, 3: 0 } };
@@ -1234,7 +1255,7 @@ async function handleApi(req, res, url) {
 
   if (p === '/api/words/pack' && method === 'GET') {
     const day = url.searchParams.get('day') || businessDay();
-    const packNo = clampPack(url.searchParams.get('pack_no') || 1);
+    const packNo = Math.max(1, Number(url.searchParams.get('pack_no')) || 1);
     const rows = db.prepare('SELECT * FROM user_words WHERE user_id=? AND day=? AND pack_no=? ORDER BY word_id ASC').all(me.id, day, packNo);
     return sendJSON(res, 200, {
       day, pack_no: packNo,
