@@ -2374,3 +2374,15 @@ body.mobile-perf .foil-glare { opacity: .75; }
 @keyframes mobilePackOut{
   to{ transform: translate3d(0,18%,0) scale(.92); opacity:0; }
 }
+
+.word-fallback-grid{
+  position:absolute;inset:auto 0 12%;z-index:30;display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:0 14px;
+}
+.fallback-card{
+  background:linear-gradient(160deg,#FBF8EF,#EDE6D4);border:1px solid rgba(26,54,45,.18);
+  padding:12px;border-radius:6px;color:#1A362D;
+}
+.fallback-card h3{font-family:Georgia,serif;font-size:18px;margin:2px 0 4px;word-break:break-word}
+.fallback-card .word-zh{font-size:12.5px}
+.fallback-card .word-ex{font-size:11.5px;color:#4a5a52;margin:6px 0 0}

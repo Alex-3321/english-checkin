@@ -1867,6 +1867,31 @@ flipAllBtn.addEventListener('click', (e) => {
 let mobileTearing = false;
 let mobileDownAt = null;
 
+/* 最后兜底：即使物理引擎失败，也把 5 张词卡直接铺出来 */
+function mobileFailsafeCards() {
+  try {
+    const stageEl = document.getElementById('stage');
+    if (!stageEl || !currentPackRoll) return;
+    const box = document.createElement('div');
+    box.className = 'word-fallback-grid';
+    box.innerHTML = currentPackRoll.entries.map(({ def }) => {
+      const w = def.word || {};
+      return `<article class="fallback-card">
+        <div class="word-rarity">${escHtml(def.rarityLabel || '')} · ${escHtml(def.serial)}</div>
+        <h3>${escHtml(def.name)}</h3>
+        ${def.phonetic ? `<div class="word-phonetic">${escHtml(def.phonetic)}</div>` : ''}
+        <div class="word-sub"><span class="word-pos">${escHtml(def.tag || '')}</span><span class="word-zh">${escHtml(w.zh || '')}</span></div>
+        ${w.phrase ? `<div class="word-phrase">${escHtml(w.phrase)}</div>` : ''}
+        ${w.ex ? `<p class="word-ex">${escHtml(w.ex)}</p>` : ''}
+      </article>`;
+    }).join('');
+    stageEl.appendChild(box);
+    const packEl = document.getElementById('pack');
+    if (packEl) packEl.style.visibility = 'hidden';
+    console.warn('[wordpack] fallback cards rendered');
+  } catch (e) { console.error('[wordpack fallback]', e); }
+}
+
 function triggerMobileTear() {
   if (mobileTearing) return;
   mobileTearing = true;
@@ -1896,6 +1921,7 @@ function triggerMobileTear() {
     if (!cards.length) {
       try { spawnPackCards(); } catch (err) { console.error('[mobile tear retry]', err); }
     }
+    if (!cards.length) mobileFailsafeCards();
   }, 560);
   } catch (err) {
     console.error('[mobile tear start]', err);
