@@ -894,3 +894,4 @@ body > * { position: relative; z-index: 1; }
 .rh-empty{margin:0 0 8px;font-size:12px;color:var(--faint)}
 .read-stat{margin:8px 0 0;font-size:12px;color:var(--faint);letter-spacing:.02em}
 .read-loading{font-family:-apple-system,"PingFang SC",sans-serif;font-size:13.5px;color:var(--faint);padding:40px 0}
+.read-intro{margin:10px 0 0;font-size:13px;color:var(--faint);letter-spacing:.02em}

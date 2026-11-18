@@ -604,7 +604,9 @@ function renderArticle() {
     sum.innerHTML = `<p class="rs-kicker">SUMMARY · 主旨</p><p class="rs-text">${esc(a.summary_cn)}</p>`;
   } else sum.hidden = true;
 
-  $('#readSource').textContent = `出处：${a.source || '内置文章库'}`;
+  $('#readSource').textContent = `出处：${a.source || 'Aesop\'s Fables'}　·　${a.license || 'Public Domain（公版）'}`;
+  const intro = $('#readIntro');
+  if (intro) { intro.textContent = a.intro_cn || ''; intro.hidden = !a.intro_cn; }
   updateReadProgress();
 
   const hint = $('#readArchiveHint');
@@ -644,7 +646,7 @@ function renderReadHistory(days) {
 }
 
 async function loadRead() {
-  $('#readBody').innerHTML = '<p class="read-loading">正在为你生成今天的文章…（首次约 15 秒，之后秒开）</p>';
+  $('#readBody').innerHTML = '<p class="read-loading">正在加载今天的文章…</p>';
   $('#readTitleCn').textContent = 'Loading…';
   $('#readTitleEn').textContent = 'Daily reading is being prepared';
   $('#readSummary').hidden = true;
