@@ -34,6 +34,22 @@ function savePack(pack) {
   try { sessionStorage.setItem(KEY, JSON.stringify(pack)); } catch (e) {}
 }
 
+function showWordRankUp(info, done) {
+  const wrap = document.createElement('div');
+  wrap.className = 'confirm rankup word-rankup';
+  wrap.innerHTML = `
+    <div class="confirm-box rankup-box">
+      <p class="rankup-kicker">RANK UP · 段位提升</p>
+      <div class="rankup-icon">${window.RankSystem ? RankSystem.svg(info.to_key, 120) : ''}</div>
+      <h3 class="rankup-title">${info.to_cn}</h3>
+      <p class="rankup-sub">${info.from_cn} → ${info.to_cn} · ${info.total} 分</p>
+      <div class="confirm-actions"><button type="button" class="btn btn-primary" data-ok>收下</button></div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => { wrap.remove(); done(); };
+  wrap.querySelector('[data-ok]').addEventListener('click', close, { once: true });
+}
+
 function launch(pack) {
   window.__WORD_PACK__ = pack;
   document.body.classList.add('word-mode');
@@ -129,7 +145,8 @@ async function init() {
       }
       if (!res.ok) throw new Error(data.error || '抽卡失败');
       savePack(data);
-      launch(data);
+      if (data.rank_up) showWordRankUp(data.rank_up, () => launch(data));
+      else launch(data);
     } catch (e) {
       showError(e.message || '抽卡失败，请重试');
       setLoading(false);

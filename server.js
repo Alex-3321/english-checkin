@@ -418,6 +418,25 @@ const RANKS = [
   { key: 'zenith',       en: 'Zenith',       cn: '十年磨剑', base: 3800 },
 ];
 
+/* 统一加分：返回升段信息（仅当段位提升），扣分不返回 */
+function addTotalScore(uid, delta) {
+  delta = Number(delta) || 0;
+  if (!delta) return null;
+  const row = db.prepare('SELECT total_score FROM users WHERE id=?').get(uid);
+  if (!row) return null;
+  const before = Number(row.total_score) || 0;
+  db.prepare('UPDATE users SET total_score = MAX(total_score + ?, 0) WHERE id=?').run(delta, uid);
+  const after = Number(db.prepare('SELECT total_score FROM users WHERE id=?').get(uid).total_score) || 0;
+  const from = rankInfo(before);
+  const to = rankInfo(after);
+  if (to.tier_index <= from.tier_index) return null;
+  return {
+    from_key: from.tier_key, from_cn: from.tier_cn, from_en: from.tier_en,
+    to_key: to.tier_key, to_cn: to.tier_cn, to_en: to.tier_en,
+    to_base: to.tier_base, total: after, gained: delta,
+  };
+}
+
 function rankInfo(score) {
   score = Number(score) || 0;
   let idx = 0;
@@ -759,8 +778,8 @@ function settleReading(uid, day, articleId, addSeconds) {
     .run(uid, articleId, newArticleSeconds, rec.points + gain, nowCN());
   db.prepare(`UPDATE read_daily SET seconds=?, points=?, last_at=? WHERE user_id=? AND day=?`)
     .run(newDailySeconds, daily.points + gain, nowCN(), uid, day);
-  if (gain > 0) db.prepare('UPDATE users SET total_score = total_score + ? WHERE id=?').run(gain, uid);
-  return { gain, seconds: newDailySeconds, points: daily.points + gain, article_points: rec.points + gain };
+  const rankUp = addTotalScore(uid, gain);
+  return { gain, rank_up: rankUp, seconds: newDailySeconds, points: daily.points + gain, article_points: rec.points + gain };
 }
 /* 是否在当前「业务日」已有该类型记录 */
 function hasToday(uid, type) {
@@ -768,7 +787,7 @@ function hasToday(uid, type) {
     .get(uid, type, businessDay());
 }
 function bumpTotal(uid, pts) {
-  db.prepare('UPDATE users SET total_score = total_score + ? WHERE id=?').run(pts, uid);
+  return addTotalScore(uid, pts);
 }
 
 /* ---------------- 站点标题（可在后台修改，env 作为初始值） ---------------- */
@@ -923,8 +942,8 @@ async function handleApi(req, res, url) {
       if (/UNIQUE/i.test(e.message)) return sendJSON(res, 400, { error: '今日已签到，不可重复提交' });
       throw e;
     }
-    bumpTotal(me.id, PTS.checkin);
-    return sendJSON(res, 200, { ok: true, gained: PTS.checkin, quarter_score: quarterScore(me.id) });
+    const rankUp = bumpTotal(me.id, PTS.checkin);
+    return sendJSON(res, 200, { ok: true, gained: PTS.checkin, rank_up: rankUp, quarter_score: quarterScore(me.id) });
   }
 
   if (p === '/api/upload' && method === 'POST') {
@@ -976,10 +995,10 @@ async function handleApi(req, res, url) {
       if (/UNIQUE/i.test(e.message)) return sendJSON(res, 409, { error: '请勿重复使用历史照片' });
       throw e;
     }
-    bumpTotal(me.id, pts);
+    const rankUp = bumpTotal(me.id, pts);
 
     return sendJSON(res, 200, {
-      ok: true, accepted: true,
+      ok: true, accepted: true, rank_up: rankUp,
       level: grade.level, points: pts, comment: grade.comment,
       degraded: !!grade.degraded,
       image: `/uploads/${fname}`,
@@ -1165,10 +1184,10 @@ async function handleApi(req, res, url) {
 
   /* 加分：word_daily + users.total_score，调用方负责事务 */
   function awardWordPoints(uid, day, points) {
-    if (!points) return;
+    if (!points) return null;
     db.prepare('INSERT INTO word_daily (user_id,day,draws,points) VALUES (?,?,0,?) ON CONFLICT(user_id,day) DO UPDATE SET points=points+?')
       .run(uid, day, points, points);
-    db.prepare('UPDATE users SET total_score = total_score + ? WHERE id=?').run(points, uid);
+    return addTotalScore(uid, points);
   }
 
   function withTx(fn) {
@@ -1186,6 +1205,7 @@ async function handleApi(req, res, url) {
     const st = wordState(me.id, day);
     if (!st.unlimited && st.draws_left <= 0) return sendJSON(res, 429, { error: `每天最多抽 ${WORD_LIMIT} 次` });
     /* 每次抽卡都是一个新包：普通用户 1–3，管理员 1、2、3、4… 递增 */
+    let rankUpDraw = null;
     const packNo = st.draws + 1;
     const owned = new Set(db.prepare('SELECT word_id FROM user_words WHERE user_id=?').all(me.id).map((r) => r.word_id));
     let pool = WORDS.filter((w) => !owned.has(w.id));
@@ -1205,7 +1225,7 @@ async function handleApi(req, res, url) {
       }
       db.prepare('INSERT INTO word_daily (user_id,day,draws,points) VALUES (?,?,1,?) ON CONFLICT(user_id,day) DO UPDATE SET draws=draws+1, points=points+?')
         .run(me.id, day, WORD_DRAW_POINTS, WORD_DRAW_POINTS);
-      db.prepare('UPDATE users SET total_score = total_score + ? WHERE id=?').run(WORD_DRAW_POINTS, me.id);
+      rankUpDraw = addTotalScore(me.id, WORD_DRAW_POINTS);
     });
 
     return sendJSON(res, 200, {
@@ -1216,6 +1236,7 @@ async function handleApi(req, res, url) {
         return payloadWord(row);
       }),
       gained: WORD_DRAW_POINTS,
+      rank_up: rankUpDraw,
       state: wordState(me.id, day),
     });
   }
@@ -1299,14 +1320,16 @@ async function handleApi(req, res, url) {
       db.prepare('UPDATE user_words SET stage=2 WHERE user_id=? AND word_id=?').run(me.id, wid);
       stage = 2;
     } else if (stage === 2) {
+      let rankUp = null;
       withTx(() => {
         db.prepare('UPDATE user_words SET stage=3, learned=1, learn_awarded=1, learned_at=? WHERE user_id=? AND word_id=?')
           .run(nowCN(), me.id, wid);
-        if (!row.learn_awarded) awardWordPoints(me.id, day, WORD_STAGE_POINTS);
+        if (!row.learn_awarded) rankUp = awardWordPoints(me.id, day, WORD_STAGE_POINTS);
       });
       stage = 3;
       learned = true;
       gained = row.learn_awarded ? 0 : WORD_STAGE_POINTS;
+      return sendJSON(res, 200, { stage, gained, learned, rank_up: rankUp });
     }
     return sendJSON(res, 200, { stage, gained, learned });
   }
@@ -1321,15 +1344,15 @@ async function handleApi(req, res, url) {
     const w = WORDS[wid - 1];
     const ans = String(b.answer || '').trim().toLowerCase();
     const correct = ans === w.w.toLowerCase();
-    let gained = 0;
+    let gained = 0, rankUp = null;
     if (correct && !row.spell_awarded) {
       withTx(() => {
         db.prepare('UPDATE user_words SET spell_at=?, spell_awarded=1 WHERE user_id=? AND word_id=?').run(nowCN(), me.id, wid);
-        awardWordPoints(me.id, day, WORD_SPELL_POINTS);
+        rankUp = awardWordPoints(me.id, day, WORD_SPELL_POINTS);
       });
       gained = WORD_SPELL_POINTS;
     }
-    return sendJSON(res, 200, { correct, expected: w.w, gained, spell_done: correct || !!row.spell_awarded });
+    return sendJSON(res, 200, { correct, expected: w.w, gained, rank_up: rankUp, spell_done: correct || !!row.spell_awarded });
   }
 
   if (p === '/api/words/study' && method === 'GET') {
@@ -1343,12 +1366,13 @@ async function handleApi(req, res, url) {
     const day = businessDay();
     const row = wordRow(me.id, wid);
     if (!row) return sendJSON(res, 404, { error: '还没有抽到这个词' });
-    if ((Number(row.stage) || 0) >= 3) return sendJSON(res, 200, { ok: true, gained: 0, state: wordState(me.id, day) });
+    if ((Number(row.stage) || 0) >= 3) return sendJSON(res, 200, { ok: true, gained: 0, rank_up: null, state: wordState(me.id, day) });
+    let rankUp = null;
     withTx(() => {
       db.prepare('UPDATE user_words SET stage=3, learned=1, learn_awarded=1, learned_at=? WHERE user_id=? AND word_id=?').run(nowCN(), me.id, wid);
-      if (!row.learn_awarded) awardWordPoints(me.id, day, WORD_STAGE_POINTS);
+      if (!row.learn_awarded) rankUp = awardWordPoints(me.id, day, WORD_STAGE_POINTS);
     });
-    return sendJSON(res, 200, { ok: true, gained: row.learn_awarded ? 0 : WORD_STAGE_POINTS, state: wordState(me.id, day) });
+    return sendJSON(res, 200, { ok: true, gained: row.learn_awarded ? 0 : WORD_STAGE_POINTS, rank_up: rankUp, state: wordState(me.id, day) });
   }
 
   /* ================= 沉浸阅读 ================= */

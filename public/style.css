@@ -1062,3 +1062,13 @@ body > * { position: relative; z-index: 1; }
 .word-dot.is-s2{background:rgba(185,146,63,.55)}
 .word-dot.is-s3{background:rgba(26,54,45,.65)}
 .word-dot.is-done{background:var(--gold)}
+
+/* ---------- 段位提升弹窗 ---------- */
+.rankup-box{text-align:center;max-width:min(92vw,420px)}
+.rankup-kicker{font-size:10px;letter-spacing:.3em;color:var(--gold);margin:0 0 10px}
+.rankup-icon{display:flex;justify-content:center;margin:6px 0 10px}
+.rankup-icon svg{filter:drop-shadow(0 6px 18px rgba(185,146,63,.35))}
+#rankUpModal.is-in .rankup-icon svg{animation:rankPop .9s cubic-bezier(.2,.9,.2,1) both}
+@keyframes rankPop{0%{transform:scale(.6) rotate(-12deg);opacity:.2}60%{transform:scale(1.12) rotate(3deg);opacity:1}100%{transform:scale(1) rotate(0);opacity:1}}
+.rankup-title{font-family:Georgia,serif;font-size:24px;margin:6px 0 4px;color:var(--ink)}
+.rankup-sub{font-size:12.5px;color:var(--faint);margin:0 0 4px}

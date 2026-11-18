@@ -42,10 +42,50 @@ function fmtTime(iso) {
 
 class ApiError extends Error { constructor(m, s) { super(m); this.status = s; } }
 
+/* ---------- 段位提升弹窗（队列，不覆盖） ---------- */
+const rankUpQueue = [];
+let rankUpShowing = false;
+let lastRankUpKey = '';
+let lastRankUpAt = 0;
+
+function showRankUp(info) {
+  if (!info) return;
+  const key = `${info.to_key}:${info.total}`;
+  const now = Date.now();
+  if (key === lastRankUpKey && now - lastRankUpAt < 3000) return;
+  lastRankUpKey = key;
+  lastRankUpAt = now;
+  rankUpQueue.push(info);
+  if (!rankUpShowing) nextRankUp();
+}
+
+function nextRankUp() {
+  const info = rankUpQueue.shift();
+  if (!info) { rankUpShowing = false; return; }
+  rankUpShowing = true;
+  const icon = document.getElementById('rankUpIcon');
+  if (icon && window.RankSystem) icon.innerHTML = RankSystem.svg(info.to_key, 132);
+  const title = document.getElementById('rankUpTitle');
+  const sub = document.getElementById('rankUpSub');
+  if (title) title.textContent = info.to_cn || '';
+  if (sub) sub.textContent = `${info.from_cn} → ${info.to_cn} · ${info.total} 分`;
+  const modal = document.getElementById('rankUpModal');
+  if (modal) { modal.hidden = false; modal.classList.add('is-in'); }
+  setTimeout(() => { const m = document.getElementById('rankUpModal'); if (m) m.classList.remove('is-in'); }, 900);
+}
+
+function closeRankUp() {
+  const modal = document.getElementById('rankUpModal');
+  if (modal) modal.hidden = true;
+  rankUpShowing = false;
+  setTimeout(nextRankUp, 120);
+}
+
 async function api(path, opts = {}) {
   const res = await fetch(path, Object.assign({ credentials: 'same-origin' }, opts));
   let data = {};
   try { data = await res.json(); } catch {}
+  if (res.ok && data && data.rank_up) { try { showRankUp(data.rank_up); } catch (e) {} }
   if (res.status === 401) {
     state.me = null;
     if (data.code === 'SESSION_KICKED') {
@@ -560,6 +600,11 @@ async function loadWords() {
   wordState.data = d;
   syncWordScore(d);
 }
+
+const rankOkBtn = document.getElementById('rankUpOk');
+if (rankOkBtn) rankOkBtn.onclick = closeRankUp;
+const rankModal = document.getElementById('rankUpModal');
+if (rankModal) rankModal.addEventListener('click', (e) => { if (e.target.id === 'rankUpModal') closeRankUp(); });
 
 $('#startPack').addEventListener('click', () => { location.href = '/wordpack/'; });
 $('#goWords').addEventListener('click', () => { location.href = '/wordpack/'; });
