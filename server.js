@@ -457,6 +457,8 @@ function quarterScore(uid) {
 /* ================= 沉浸阅读 ================= */
 const READ = { perMinute: 1, perArticleCap: 6, dailyCap: 12, batchSize: 10 };
 const BATCH_COUNT = () => Math.ceil(readingLib.ARTICLES.length / READ.batchSize);
+const tierSize = (d) => readingLib.byDifficulty(d).length;
+const batchCountFor = (d) => Math.max(1, Math.ceil((tierSize(d) || READ.batchSize) / READ.batchSize));
 const DAY_MS = 864e5;
 
 function readQuota(uid, day) {
@@ -521,15 +523,6 @@ function seedRand(seed) {
 /* 为某个用户当天挑 10 篇：优先从未出现过的文章里选，池子不够时用最久未用的补 */
 function pickDailySet(uid, day, n, difficulty) {
   const used = new Set(db.prepare('SELECT article_id FROM read_served WHERE user_id=?').all(uid).map((r) => r.article_id));
-  const rank = { '初级': 0, '中级': 1, '高级': 2 };
-  const pref = rank[difficulty] == null ? 1 : rank[difficulty];
-  const list = [...readingLib.ARTICLES].sort((x, y) => {
-    const dx = Math.abs(rank[x.difficulty] - pref);
-    const dy = Math.abs(rank[y.difficulty] - pref);
-    return dx - dy || x.id - y.id;
-  });
-  const all = list.map((a) => a.id);
-  const unseen = all.filter((id) => !used.has(id));
   const rand = seedRand(Number(String(uid).replace(/\D/g, '')) * 7919 + Number(String(day).replace(/\D/g, '')));
   const shuffle = (arr) => {
     const a = [...arr];
@@ -539,10 +532,14 @@ function pickDailySet(uid, day, n, difficulty) {
     }
     return a;
   };
-  let picks = shuffle(unseen).slice(0, n);
+  const tier = readingLib.byDifficulty(difficulty).map((a) => a.id);
+  const others = readingLib.ARTICLES.filter((a) => a.difficulty !== difficulty).map((a) => a.id);
+  const order = shuffle(tier).concat(shuffle(others));
+  const unseen = order.filter((id) => !used.has(id));
+  let picks = unseen.slice(0, n);
   if (picks.length < n) {
     const stat = new Map(db.prepare('SELECT article_id, COUNT(*) c, MAX(day) d FROM read_served WHERE user_id=? GROUP BY article_id').all(uid).map((r) => [r.article_id, r]));
-    const rest = all.filter((id) => !picks.includes(id)).sort((x, y) => {
+    const rest = order.filter((id) => !picks.includes(id)).sort((x, y) => {
       const A = stat.get(x) || { c: 0, d: '' }, B = stat.get(y) || { c: 0, d: '' };
       return A.c - B.c || String(A.d).localeCompare(String(B.d)) || x - y;
     });
@@ -551,7 +548,6 @@ function pickDailySet(uid, day, n, difficulty) {
   return picks;
 }
 
-/* 确保当天 10 个位置都排好 */
 function ensureBatch(uid, day, batch) {
   const from = (batch - 1) * READ.batchSize + 1;
   const to = batch * READ.batchSize;
@@ -578,7 +574,7 @@ function listItem(row) {
   const lib = readingLib.byId(row.article_id);
   if (!lib) return null;
   const read = db.prepare('SELECT seconds,points FROM article_reads WHERE user_id=? AND article_id=?').get(row.user_id || 0, lib.id) || { seconds: 0, points: 0 };
-  return { id: lib.id, seq: row.seq, title_cn: lib.title_cn, title_en: lib.title_en, level: lib.level, kind: lib.kind, words: lib.words || 0, read_seconds: read.seconds, points: read.points };
+  return { id: lib.id, seq: row.seq, title_cn: lib.title_cn, title_en: lib.title_en, level: lib.level, difficulty: lib.difficulty, kind: lib.kind, words: lib.words || 0, read_seconds: read.seconds, points: read.points };
 }
 
 function readListPayload(uid, day) {
@@ -594,7 +590,7 @@ function readListPayload(uid, day) {
         const lib = readingLib.byId(r.article_id);
         if (!lib) return null;
         const read = db.prepare('SELECT seconds,points FROM article_reads WHERE user_id=? AND article_id=?').get(uid, lib.id) || { seconds: 0, points: 0 };
-        return { id: lib.id, seq: r.seq, title_cn: lib.title_cn, title_en: lib.title_en, level: lib.level, kind: lib.kind, words: lib.words || 0, read_seconds: read.seconds, points: read.points };
+        return { id: lib.id, seq: r.seq, title_cn: lib.title_cn, title_en: lib.title_en, level: lib.level, difficulty: lib.difficulty, kind: lib.kind, words: lib.words || 0, read_seconds: read.seconds, points: read.points };
       }).filter(Boolean),
     });
   }
@@ -605,8 +601,8 @@ function readListPayload(uid, day) {
     difficulty: q.difficulty || null,
     need_difficulty: !q.difficulty,
     current_batch: curBatch,
-    batch_count: BATCH_COUNT(),
-    remaining_refresh: Math.max(0, BATCH_COUNT() - curBatch),
+    batch_count: batchCountFor(q.difficulty || '初级'),
+    remaining_refresh: Math.max(0, batchCountFor(q.difficulty || '初级') - curBatch),
     library_size: readingLib.ARTICLES.length,
     progress: {
       day,
@@ -615,7 +611,7 @@ function readListPayload(uid, day) {
       daily_cap: READ.dailyCap,
       article_cap: READ.perArticleCap,
       refreshed: Math.max(0, curBatch - 1),
-      refresh_limit: BATCH_COUNT() - 1,
+      refresh_limit: batchCountFor(q.difficulty || '初级') - 1,
     },
   };
 }
@@ -1029,7 +1025,7 @@ async function handleApi(req, res, url) {
         day,
         batches: [],
         current_batch: 0,
-        batch_count: BATCH_COUNT(),
+        batch_count: batchCountFor(q.difficulty || '初级'),
         remaining_refresh: 0,
         library_size: readingLib.ARTICLES.length,
         progress: { day, daily_seconds: readDaily(me.id, day).seconds, daily_points: readDaily(me.id, day).points, daily_cap: READ.dailyCap, article_cap: READ.perArticleCap, refreshed: 0, refresh_limit: BATCH_COUNT() - 1 },
@@ -1057,7 +1053,7 @@ async function handleApi(req, res, url) {
     const day = businessDay();
     const q = readQuota(me.id, day);
     const cur = Number(q.current_batch) || 1;
-    if (cur >= BATCH_COUNT()) return sendJSON(res, 429, { error: '今天的文章已经全部领完' });
+    if (cur >= batchCountFor(q.difficulty || '初级')) return sendJSON(res, 429, { error: '该难度今天的文章已经全部领完' });
     const next = cur + 1;
     ensureBatch(me.id, day, next);
     db.prepare('UPDATE read_quota SET current_batch=?, refreshed=refreshed+1 WHERE user_id=? AND day=?').run(next, me.id, day);
@@ -1108,7 +1104,7 @@ async function handleApi(req, res, url) {
         daily_cap: READ.dailyCap,
         article_cap: READ.perArticleCap,
         refreshed: Math.max(0, (Number(q.current_batch) || 1) - 1),
-        refresh_limit: BATCH_COUNT() - 1,
+        refresh_limit: batchCountFor(q.difficulty || '初级') - 1,
       },
     });
   }
