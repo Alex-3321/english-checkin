@@ -935,7 +935,7 @@ function launchConfetti() {
 }
 
 function emitScreenSparks(sx, sy, { count = 12, colors = ['#ffffff'], speedMin = 120, speedMax = 420, gravity = 680, lifeMin = 0.28, lifeMax = 0.62, scaleMin = 0.55, scaleMax = 1.25 } = {}) {
-  if (prefersReducedMotion) return;
+  if (prefersReducedMotion && !WORD_MODE) return;
   for (let i = 0; i < count; i++) {
     const ang = rand(0, Math.PI * 2);
     const spd = rand(speedMin, speedMax);
@@ -956,7 +956,7 @@ function emitScreenSparks(sx, sy, { count = 12, colors = ['#ffffff'], speedMin =
 }
 
 function spawnFlipBurst(cardObj) {
-  if (prefersReducedMotion) return;
+  if (prefersReducedMotion && !WORD_MODE) return;
   const rarity = cardObj.def.rarity;
   const meta = RARITY_META[rarity];
   if (meta.rank <= 1 && !cardObj.foilVariant) return;
@@ -1012,7 +1012,7 @@ function spawnFlipBurst(cardObj) {
 }
 
 function triggerStageImpact(rarity) {
-  if (prefersReducedMotion) return;
+  if (prefersReducedMotion && !WORD_MODE) return;
   const cls = rarity === 'secret' ? 'impact-secret' : rarity === 'ultra' ? 'impact-ultra' : '';
   if (!cls) return;
   stageEl.classList.remove('impact-ultra', 'impact-secret');
@@ -1123,7 +1123,7 @@ function buildCardMarkup(cardDef, { foilVariant = null, showNew = false } = {}) 
       `<i class="foil-glare"></i>` +
       `<div class="word-plaque">` +
       `<div class="word-serial">WORD ${escHtml(cardDef.serial)}</div>` +
-      `<div class="word-main">${escHtml(cardDef.name)}</div>` +
+      `<div class="word-main${cardDef.name.length > 10 ? ' is-long' : ''}">${escHtml(cardDef.name)}</div>` +
       `<div class="word-sub"><span class="word-pos">${escHtml(cardDef.tag)}</span><span class="word-zh">${escHtml(w.zh || cardDef.trait)}</span></div>` +
       (w.phrase ? `<div class="word-phrase">${escHtml(w.phrase)}${w.phraseZh ? ' · ' + escHtml(w.phraseZh) : ''}</div>` : '') +
       (w.ex ? `<p class="word-ex">${escHtml(w.ex)}</p>` : '') +

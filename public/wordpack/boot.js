@@ -62,6 +62,17 @@ async function fetchState() {
   return res.json();
 }
 
+async function syncSiteTitle() {
+  try {
+    const res = await fetch('/api/site', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const d = await res.json();
+    const title = (d.title || '').trim() || '朗英 英语协会';
+    document.querySelectorAll('.brand-text').forEach((el) => { el.textContent = title; });
+    document.title = title;
+  } catch (e) { /* 忽略 */ }
+}
+
 async function init() {
   backBtn.addEventListener('click', () => { location.href = '/#/words'; });
   if (FORCE_FRESH) { try { sessionStorage.removeItem(KEY); } catch (e) {} }
@@ -82,9 +93,11 @@ async function init() {
       saved = null;
     }
   }
+  const contBtn = $('bootContinue');
   if (saved && saved.day === state.day) {
-    launch(saved);
-    return;
+    contBtn.hidden = false;
+    contBtn.textContent = `继续上一包（第 ${saved.pack_no} 包，不扣次数）`;
+    contBtn.addEventListener('click', () => launch(saved), { once: true });
   }
   if (saved) { try { sessionStorage.removeItem(KEY); } catch (e) {} }
 
@@ -93,8 +106,11 @@ async function init() {
   if (!state.unlimited && state.draws_left <= 0) {
     startBtn.textContent = '今日已抽完';
     startBtn.disabled = true;
-    backBtn.textContent = '返回收藏夹';
-    backBtn.onclick = () => { location.href = '/#/wordbook'; };
+    startBtn.hidden = true;
+    if (!saved) {
+      backBtn.textContent = '返回收藏夹';
+      backBtn.onclick = () => { location.href = '/#/wordbook'; };
+    }
     return;
   }
 
@@ -131,6 +147,7 @@ window.addEventListener('error', (e) => {
   if (start) { start.disabled = false; start.textContent = '重试'; start.onclick = () => location.reload(); }
 });
 
+syncSiteTitle();
 window.addEventListener('pageshow', (e) => { if (e.persisted) location.reload(); });
 
 init();
