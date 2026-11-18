@@ -2512,7 +2512,50 @@ function tick(nowMs) {
   requestAnimationFrame(tick);
 }
 
+function startAmbientDust() {
+  if (!WORD_MODE) return;
+  const stageEl = document.getElementById('stage');
+  if (!stageEl) return;
+  const c = document.createElement('canvas');
+  c.className = 'ambient-dust';
+  stageEl.appendChild(c);
+  const ctx = c.getContext('2d');
+  if (!ctx) return;
+  let w = 0, h = 0, dpr = 1;
+  const resize = () => {
+    w = c.clientWidth; h = c.clientHeight;
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    c.width = Math.max(1, w * dpr); c.height = Math.max(1, h * dpr);
+  };
+  resize();
+  window.addEventListener('resize', resize);
+  const parts = Array.from({ length: 26 }, () => ({
+    x: Math.random(), y: Math.random(),
+    r: Math.random() * 1.5 + 0.5,
+    vy: -(Math.random() * 0.00006 + 0.00002),
+    vx: (Math.random() - 0.5) * 0.00004,
+    a: Math.random() * 0.35 + 0.12,
+  }));
+  const loop = () => {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    for (const p of parts) {
+      p.y += p.vy; p.x += p.vx;
+      if (p.y < -0.05) { p.y = 1.05; p.x = Math.random(); }
+      if (p.x < -0.05) p.x = 1.05;
+      if (p.x > 1.05) p.x = -0.05;
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(212,175,55,${p.a})`;
+      ctx.arc(p.x * w, p.y * h, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    requestAnimationFrame(loop);
+  };
+  loop();
+}
+
 if (WORD_MODE) {
+  startAmbientDust();
   document.body.classList.add('word-mode');
   [binderBtn, pityBadge, luckBtn, shakeBtn, flipAllBtn, againBtn].forEach((el) => { if (el) el.hidden = true; });
   const back = document.getElementById('backToWords');
