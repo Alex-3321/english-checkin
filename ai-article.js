@@ -1,18 +1,12 @@
 /* 阅读文章生成：调用智谱文本模型，失败时回退内置文章库 */
 const LIB = require('./article-library');
 
-const PROMPT = `你是一位英语学习内容编辑，为大学生编写每日精读短文。
-请生成一篇英文短文，主题从以下方向随机选一个（不要重复）：时间管理、睡眠科学、语言学习、气候变化、人工智能、运动精神、失败的价值、习惯养成、专注力、好奇心、城市与自然、音乐与大脑。
+const PROMPT = `You are an English reading editor for Chinese college students.
+Write ONE English article (4 paragraphs, 150-190 words, CEFR B2 level) on a random topic from: time management, sleep science, language learning, climate, AI, sportsmanship, failure, habits, focus, curiosity, cities and nature, music and the brain.
+For each paragraph provide the English text and its Chinese translation. Add a one-sentence Chinese summary.
 
-要求：
-1. 英文正文 5 个自然段，每段 2-3 句，总词数 180-240，难度为大学英语四级。
-2. 每个自然段都要有对应中文翻译；英文按句子拆分成数组，中文与英文句数一一对应。
-3. 结尾给出一句中文总结（30 字左右），点出文章主旨。
-4. 标题要中英结合：title_en 为英文标题，title_cn 为中文标题。
-5. 只输出 JSON，不要任何解释、不要 Markdown 代码块。
-
-JSON 结构：
-{"title_en":"...","title_cn":"...","level":"四级","intro_cn":"一句话中文导读","paragraphs":[{"en":["sentence1","sentence2"],"zh":["句1中文","句2中文"]}],"summary_cn":"中文总结","topic":"sleep"}`;
+Return ONLY a JSON object, no markdown, no explanation:
+{"title_en":"English title","title_cn":"中文标题","level":"四级","intro_cn":"一句话中文导读","paragraphs":[{"en":"English paragraph text.","zh":"该段中文翻译。"}],"summary_cn":"中文总结"}`;
 
 function key() {
   return process.env.ZHIPU_API_KEY || process.env.AI_API_KEY || '';
@@ -26,12 +20,30 @@ function parseJSON(text) {
   return JSON.parse(t);
 }
 
+function splitEn(text) {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[.!?])\s+(?=[A-Z"'])/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+function splitZh(text) {
+  return String(text || '')
+    .replace(/\s+/g, '')
+    .split(/(?<=[。！？；])/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+function align(en, zh) {
+  const e = splitEn(en), z = splitZh(zh);
+  if (!e.length) return { en: [], zh: [] };
+  if (e.length === z.length) return { en: e, zh: z };
+  return { en: e, zh: [String(zh || '').trim() || e.join(' ')] };
+}
+
 function normalize(o) {
   if (!o || !Array.isArray(o.paragraphs) || !o.paragraphs.length) throw new Error('结构不完整');
-  const paragraphs = o.paragraphs.map((p) => ({
-    en: Array.isArray(p.en) ? p.en.map(String) : [String(p.en || '')],
-    zh: Array.isArray(p.zh) ? p.zh.map(String) : [String(p.zh || '')],
-  })).filter((p) => p.en.join('').trim());
+  const paragraphs = o.paragraphs.map((p) => align(p.en, p.zh)).filter((p) => p.en.length);
   if (!paragraphs.length) throw new Error('正文为空');
   return {
     title_en: String(o.title_en || 'Daily Reading').slice(0, 120),
@@ -53,6 +65,8 @@ async function generateArticle() {
   const model = process.env.AI_TEXT_MODEL || 'glm-4-flash';
   const timeout = Number(process.env.AI_TEXT_TIMEOUT_MS || 25000);
 
+  let lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -60,6 +74,8 @@ async function generateArticle() {
       body: JSON.stringify({
         model,
         temperature: 0.8,
+        max_tokens: 1200,
+        response_format: { type: 'json_object' },
         messages: [{ role: 'user', content: PROMPT }],
       }),
       signal: AbortSignal.timeout(timeout),
@@ -71,12 +87,14 @@ async function generateArticle() {
     art.source = 'AI 生成';
     return art;
   } catch (e) {
-    console.error('[article] AI 生成失败，回退内置库:', e.message);
-    const art = LIB.pick();
-    art.source = '内置文章库';
-    art.degraded = true;
-    return art;
+    lastErr = e;
+    console.error(`[article] AI 生成失败（第 ${attempt + 1} 次）:`, e.message);
   }
+  }
+  const art = LIB.pick();
+  art.source = '内置文章库';
+  art.degraded = true;
+  return art;
 }
 
 module.exports = { generateArticle };

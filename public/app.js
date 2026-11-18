@@ -644,7 +644,7 @@ function renderReadHistory(days) {
 }
 
 async function loadRead() {
-  $('#readBody').innerHTML = '<p class="read-loading">正在为你生成今天的文章…（约 10–20 秒）</p>';
+  $('#readBody').innerHTML = '<p class="read-loading">正在为你生成今天的文章…（首次约 15 秒，之后秒开）</p>';
   $('#readTitleCn').textContent = 'Loading…';
   $('#readTitleEn').textContent = 'Daily reading is being prepared';
   $('#readSummary').hidden = true;

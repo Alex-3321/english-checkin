@@ -165,6 +165,9 @@ db.exec(`
   const ucols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   if (!ucols.includes('is_hidden')) db.exec('ALTER TABLE users ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0');
   if (!ucols.includes('current_token')) db.exec('ALTER TABLE users ADD COLUMN current_token TEXT');
+  const qcols = db.prepare('PRAGMA table_info(read_quota)').all().map((c) => c.name);
+  if (qcols.length && !qcols.includes('current_seq')) db.exec('ALTER TABLE read_quota ADD COLUMN current_seq INTEGER NOT NULL DEFAULT 0');
+
   if (!ucols.includes('allow_multi_device')) db.exec('ALTER TABLE users ADD COLUMN allow_multi_device INTEGER NOT NULL DEFAULT 0');
 
   db.exec(`
@@ -494,8 +497,44 @@ function readProgress(uid, day, article) {
   };
 }
 
+const pendingGen = new Map();
+
+function findArticle(uid, day, seq) {
+  const row = db.prepare('SELECT * FROM articles WHERE user_id=? AND day=? AND seq=?').get(uid, day, seq);
+  return row ? articleRow(row) : null;
+}
+
+/* 生成指定序号的文章（后台预生成也走这里，带并发去重） */
+function generateSeq(uid, day, seq) {
+  const key = `${uid}:${day}:${seq}`;
+  /* 同一篇正在生成时复用同一个 Promise，避免返回 null 被误判为额度用完 */
+  if (pendingGen.has(key)) return pendingGen.get(key);
+  const task = (async () => {
+    const q = readQuota(uid, day);
+    if (q.generated >= READ.generateLimit) return null;
+    db.prepare('UPDATE read_quota SET generated=generated+1 WHERE user_id=? AND day=?').run(uid, day);
+    return createArticle(uid, day, seq);
+  })();
+  pendingGen.set(key, task);
+  task.finally(() => pendingGen.delete(key)).catch(() => {});
+  return task;
+}
+
+/* 不阻塞请求：提前把下一篇准备好 */
+function prepareNext(uid, day, seq) {
+  const q = readQuota(uid, day);
+  if (q.generated >= READ.generateLimit) return;
+  if (findArticle(uid, day, seq)) return;
+  generateSeq(uid, day, seq).catch((e) => console.error('[read] 预生成失败:', e.message));
+}
+
 async function createArticle(uid, day, seq) {
-  const art = await articleGen.generateArticle();
+  let art = await articleGen.generateArticle(seq);
+  /* 标题去重：同一用户当天不出现同名文章 */
+  if (db.prepare('SELECT 1 FROM articles WHERE user_id=? AND day=? AND title_en=?').get(uid, day, art.title_en)) {
+    const alt = await articleGen.generateArticle(seq + 1);
+    if (!db.prepare('SELECT 1 FROM articles WHERE user_id=? AND day=? AND title_en=?').get(uid, day, alt.title_en)) art = alt;
+  }
   const info = db.prepare(`INSERT INTO articles (user_id,day,seq,title_en,title_cn,level,intro_cn,body_json,summary_cn,source,created_at)
                            VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
     .run(uid, day, seq, art.title_en, art.title_cn, art.level, art.intro_cn,
@@ -673,6 +712,18 @@ async function handleApi(req, res, url) {
   }
 
   if (p === '/api/me' && method === 'GET') {
+    /* 后台预热：用户停留在首页时把今天的文章先生成好 */
+    try {
+      const _day = businessDay();
+      const _q = readQuota(me.id, _day);
+      if (!_q.current_seq) {
+        generateSeq(me.id, _day, 1).then((a) => {
+          if (a) db.prepare('UPDATE read_quota SET current_seq=1 WHERE user_id=? AND day=? AND current_seq=0').run(me.id, _day);
+        }).catch(() => {});
+      } else {
+        prepareNext(me.id, _day, Number(_q.current_seq) + 1);
+      }
+    } catch (e) { /* 预热失败不影响主流程 */ }
     return sendJSON(res, 200, {
       user: (() => {
         const total = db.prepare('SELECT total_score FROM users WHERE id=?').get(me.id).total_score;
@@ -880,15 +931,16 @@ async function handleApi(req, res, url) {
   /* ================= 沉浸阅读 ================= */
   if (p === '/api/read/today' && method === 'GET') {
     const day = businessDay();
-    const latest = db.prepare('SELECT * FROM articles WHERE user_id=? AND day=? ORDER BY seq DESC LIMIT 1').get(me.id, day);
-    let article = latest ? articleRow(latest) : null;
-    if (!article) {
-      const q = readQuota(me.id, day);
-      if (q.generated < READ.generateLimit) {
-        db.prepare('UPDATE read_quota SET generated=generated+1 WHERE user_id=? AND day=?').run(me.id, day);
-        article = await createArticle(me.id, day, q.generated + 1);
-      }
+    const q = readQuota(me.id, day);
+    let cur = Number(q.current_seq) || 0;
+    if (!cur) {
+      const first = findArticle(me.id, day, 1) || (await generateSeq(me.id, day, 1));
+      cur = first ? 1 : 0;
+      if (cur) db.prepare('UPDATE read_quota SET current_seq=? WHERE user_id=? AND day=?').run(cur, me.id, day);
     }
+    const article = findArticle(me.id, day, cur);
+    prepareNext(me.id, day, cur + 1);
+    prepareNext(me.id, day, cur + 2);
     return sendJSON(res, 200, {
       article,
       progress: readProgress(me.id, day, article),
@@ -900,9 +952,12 @@ async function handleApi(req, res, url) {
     const day = businessDay();
     const q = readQuota(me.id, day);
     if (q.refreshed >= READ.refreshLimit) return sendJSON(res, 429, { error: `每天最多刷新 ${READ.refreshLimit} 次` });
-    if (q.generated >= READ.generateLimit) return sendJSON(res, 429, { error: '今日文章额度已用完' });
-    db.prepare('UPDATE read_quota SET generated=generated+1, refreshed=refreshed+1 WHERE user_id=? AND day=?').run(me.id, day);
-    const article = await createArticle(me.id, day, q.generated + 1);
+    const next = (Number(q.current_seq) || 0) + 1;
+    let article = findArticle(me.id, day, next) || (await generateSeq(me.id, day, next));
+    if (!article) return sendJSON(res, 429, { error: '今日文章额度已用完' });
+    db.prepare('UPDATE read_quota SET current_seq=?, refreshed=refreshed+1 WHERE user_id=? AND day=?').run(next, me.id, day);
+    prepareNext(me.id, day, next + 1);
+    prepareNext(me.id, day, next + 2);
     return sendJSON(res, 200, {
       article,
       progress: readProgress(me.id, day, article),
