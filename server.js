@@ -296,11 +296,18 @@ function rankInfo(score) {
   for (let i = 0; i < RANKS.length; i++) if (score >= RANKS[i].base) idx = i;
   const cur = RANKS[idx], nxt = RANKS[idx + 1] || null;
   return {
-    key: cur.key, en: cur.en, cn: cur.cn, base: cur.base, index: idx,
-    next: nxt ? { key: nxt.key, en: nxt.en, cn: nxt.cn, base: nxt.base } : null,
-    need: nxt ? Math.max(0, nxt.base - score) : 0,
-    progress: nxt ? Math.max(0, Math.min(1, (score - cur.base) / (nxt.base - cur.base))) : 1,
-    isMax: !nxt,
+    tier_key: cur.key,
+    tier_en: cur.en,
+    tier_cn: cur.cn,
+    tier_base: cur.base,
+    tier_index: idx,
+    tier_next_key: nxt ? nxt.key : null,
+    tier_next_en: nxt ? nxt.en : null,
+    tier_next_cn: nxt ? nxt.cn : null,
+    tier_next_base: nxt ? nxt.base : null,
+    tier_need: nxt ? Math.max(0, nxt.base - score) : 0,
+    tier_progress: nxt ? Math.max(0, Math.min(1, (score - cur.base) / (nxt.base - cur.base))) : 1,
+    tier_is_max: !nxt,
   };
 }
 /* 返回 { user } | { code: 'invalid' | 'kicked' } */
@@ -527,7 +534,7 @@ async function handleApi(req, res, url) {
     return sendJSON(res, 200, {
       user: (() => {
         const total = db.prepare('SELECT total_score FROM users WHERE id=?').get(me.id).total_score;
-        return { ...me, total_score: total, rank: rankInfo(total) };
+        return { ...me, total_score: total, ...rankInfo(total) };
       })(),
       quarter: quarterInfo(),
       season_cutoff: seasonCutoff(),
@@ -661,7 +668,7 @@ async function handleApi(req, res, url) {
     const enriched = rows.map((r) => {
       const a = acc.get(r.id);
       const avg = a && a.n ? a.sum / a.n : null;
-      return { ...r, avg_min: avg, avg_time: minutesToHHMM(avg), rank: rankInfo(r.total_score) };
+      return { ...r, avg_min: avg, avg_time: minutesToHHMM(avg), ...rankInfo(r.total_score) };
     });
 
     /* 排序：本季积分降序 → 平均打卡时间升序（早者靠前，无记录排最后）→ 总积分降序 */
@@ -676,7 +683,7 @@ async function handleApi(req, res, url) {
 
     return sendJSON(res, 200, {
       quarter: quarterInfo(), season_cutoff: seasonCutoff(),
-      ranking: enriched.map((r, i) => ({ rank: i + 1, ...r })),
+      ranking: enriched.map((r, i) => ({ ...r, rank: i + 1 })),
     });
   }
 
@@ -710,7 +717,7 @@ async function handleApi(req, res, url) {
     return sendJSON(res, 200, {
       user: {
         ...u,
-        rank: rankInfo(u.total_score),
+        ...rankInfo(u.total_score),
         is_friend: isFriend(me.id, id),
         likes: likeCount(id),
         liked_today: !!db.prepare('SELECT 1 FROM likes WHERE from_id=? AND to_id=? AND day=?').get(me.id, id, todayStr()),

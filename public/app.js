@@ -475,23 +475,23 @@ async function doUpload(file) {
 
 
 /* ================= 段位展示 ================= */
-function rankChip(rank, size) {
-  if (!rank || !window.RankSystem) return '';
-  return `<span class="rank-chip" title="${esc(rank.cn)} · ${rank.en}">${RankSystem.svg(rank.key, size || 26)}</span>`;
+function tierChip(t, size) {
+  if (!t || !t.tier_key || !window.RankSystem) return '';
+  return `<span class="rank-chip" title="${esc(t.tier_cn)} · ${esc(t.tier_en)}">${RankSystem.svg(t.tier_key, size || 26)}</span>`;
 }
 
-function openRankModal(rank, score) {
-  if (!window.RankSystem) return;
-  $('#rankCur').innerHTML = RankSystem.svg(rank.key, 112)
-    + `<div class="rc-en">${rank.en}</div><div class="rc-cn">${rank.cn}</div><div class="rc-score">当前积分 ${score}</div>`;
-  if (rank.isMax) {
+function openRankModal(t, score) {
+  if (!t || !t.tier_key || !window.RankSystem) return;
+  $('#rankCur').innerHTML = RankSystem.svg(t.tier_key, 112)
+    + `<div class="rc-en">${esc(t.tier_en)}</div><div class="rc-cn">${esc(t.tier_cn)}</div><div class="rc-score">当前积分 ${score}</div>`;
+  if (t.tier_is_max) {
     $('#rankNxt').innerHTML = '<div class="rn-max">已达最高境界，一览众山小</div>';
   } else {
     $('#rankNxt').innerHTML = `
       <div class="rn-title">下一段位</div>
-      ${RankSystem.svg(rank.next.key, 84, { dim: true })}
-      <div class="rn-cn">${rank.next.cn} · ${rank.next.en}</div>
-      <div class="rn-need">还差 ${rank.need} 积分（${rank.next.base} 分起）</div>`;
+      ${RankSystem.svg(t.tier_next_key, 84, { dim: true })}
+      <div class="rn-cn">${esc(t.tier_next_cn)} · ${esc(t.tier_next_en)}</div>
+      <div class="rn-need">还差 ${t.tier_need} 积分（${t.tier_next_base} 分起）</div>`;
   }
   $('#rankModal').hidden = false;
 }
@@ -499,6 +499,28 @@ function openRankModal(rank, score) {
 $('#rankClose').addEventListener('click', () => { $('#rankModal').hidden = true; });
 $('#rankModal').addEventListener('click', (e) => {
   if (e.target.id === 'rankModal') $('#rankModal').hidden = true;
+});
+
+/* ================= 更新公告 ================= */
+const ANN_KEY = (uid) => `ann_ranks_v1_${uid}`;
+
+function maybeShowAnnounce(user) {
+  if (!user || !user.id) return;
+  try { if (localStorage.getItem(ANN_KEY(user.id))) return; } catch (e) {}
+  const box = $('#announceRanks');
+  if (box && window.RankSystem) {
+    box.innerHTML = ['nascent', 'virtuoso', 'sublime', 'zenith']
+      .map((k) => `<span class="ann-rank">${RankSystem.svg(k, 56)}</span>`).join('');
+  }
+  $('#announceModal').hidden = false;
+  state.announceUser = user.id;
+  try { localStorage.setItem(ANN_KEY(user.id), '1'); } catch (e) {}
+}
+
+$('#announceOk').addEventListener('click', () => {
+  $('#announceModal').hidden = true;
+  try { if (state.announceUser) localStorage.setItem(ANN_KEY(state.announceUser), '1'); } catch (e) {}
+  if (location.hash !== '#/me') location.hash = '#/me';
 });
 
 /* ================= 排行榜 ================= */
@@ -517,7 +539,7 @@ async function loadRank() {
       <div class="board-rank">${String(r.rank).padStart(2, '0')}</div>
       ${avatarHtml(r, 'avatar-sm')}
       <div class="board-main">
-        <div class="board-name">${rankChip(r.rank, 26)}<span>${esc(r.name)}</span></div>
+        <div class="board-name">${tierChip(r, 26)}<span>${esc(r.name)}</span></div>
         <div class="board-meta">${esc(r.class_name)} · 签到 ${r.checkin_days || 0} 天 / 打卡 ${r.upload_days || 0} 天${r.avg_time ? ` · 平均 ${r.avg_time}` : ''}</div>
       </div>
       <div class="board-score">${r.score}<small>分</small></div>`;
@@ -541,17 +563,20 @@ async function loadMe() {
   $('#privacyToggle').checked = !!d.user.is_public;
 
   /* 段位 */
-  const rk = d.user.rank || RankSystem.of(d.user.total_score);
-  $('#meRank').innerHTML = RankSystem.svg(rk.key, 36)
-    + `<span class="rank-en">${rk.en}</span><span class="rank-cn">${rk.cn}</span>`;
-  $('#meRank').onclick = () => openRankModal(rk, d.user.total_score);
-  if (rk.isMax) {
-    $('#meRankBar').style.width = '100%';
-    $('#meRankHint').textContent = '已达最高境界，一览众山小';
-  } else {
-    $('#meRankBar').style.width = (rk.progress * 100).toFixed(1) + '%';
-    $('#meRankHint').textContent = `距离 ${rk.next.cn} 还需 ${rk.need} 积分`;
+  const t = d.user;
+  if (t.tier_key && window.RankSystem) {
+    $('#meRank').innerHTML = RankSystem.svg(t.tier_key, 36)
+      + `<span class="rank-en">${esc(t.tier_en)}</span><span class="rank-cn">${esc(t.tier_cn)}</span>`;
+    $('#meRank').onclick = () => openRankModal(t, t.total_score);
+    if (t.tier_is_max) {
+      $('#meRankBar').style.width = '100%';
+      $('#meRankHint').textContent = '已达最高境界，一览众山小';
+    } else {
+      $('#meRankBar').style.width = (t.tier_progress * 100).toFixed(1) + '%';
+      $('#meRankHint').textContent = `距离 ${t.tier_next_cn} 还需 ${t.tier_need} 积分`;
+    }
   }
+  maybeShowAnnounce(d.user);
 
   const prof = await api(`/api/users/${d.user.id}`);
   renderAlbum($('#myAlbum'), prof.photos, $('#myAlbumEmpty'), '还没有打卡照片，今天就开始吧。', d.user.id);
@@ -655,10 +680,10 @@ async function loadUser(id) {
   state.currentUser = d.user;
   $('#otherAvatar').outerHTML = avatarHtml(d.user, 'avatar-lg').replace('class="avatar avatar-lg', 'id="otherAvatar" class="avatar avatar-lg');
   $('#otherName').textContent = d.user.name;
-  if (d.user.rank) {
-    $('#otherRank').innerHTML = RankSystem.svg(d.user.rank.key, 30)
-      + `<span class="rank-en">${d.user.rank.en}</span><span class="rank-cn">${d.user.rank.cn}</span>`;
-    $('#otherRank').onclick = () => openRankModal(d.user.rank, d.user.total_score);
+  if (d.user.tier_key && window.RankSystem) {
+    $('#otherRank').innerHTML = RankSystem.svg(d.user.tier_key, 30)
+      + `<span class="rank-en">${esc(d.user.tier_en)}</span><span class="rank-cn">${esc(d.user.tier_cn)}</span>`;
+    $('#otherRank').onclick = () => openRankModal(d.user, d.user.total_score);
   }
   $('#otherMeta').textContent = `${d.user.class_name}　·　学号 ${d.user.student_id}`;
   $('#otherStats').innerHTML = `<span><strong>${d.quarter_score}</strong> 本季</span><span><strong>${d.user.total_score}</strong> 总分</span>`;
