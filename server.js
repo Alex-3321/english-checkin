@@ -202,6 +202,21 @@ db.exec(`
       last_at TEXT,
       PRIMARY KEY (user_id, day)
     );
+    CREATE TABLE IF NOT EXISTS user_words (
+      user_id INTEGER NOT NULL,
+      word_id INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      learned INTEGER NOT NULL DEFAULT 0,
+      learned_at TEXT,
+      PRIMARY KEY (user_id, word_id)
+    );
+    CREATE TABLE IF NOT EXISTS word_daily (
+      user_id INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      draws INTEGER NOT NULL DEFAULT 0,
+      points INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, day)
+    );
     CREATE TABLE IF NOT EXISTS read_served (
       user_id INTEGER NOT NULL,
       day TEXT NOT NULL,
@@ -253,6 +268,7 @@ db.exec(`
 const bd = require('./lib/business-day');
 const aiGrader = require('./lib/ai-grader');
 const readingLib = require('./lib/reading-library');
+const WORDS = require('./lib/words');
 const aiQueue = require('./lib/ai-queue');
 const { nowDate, partsCN, businessDay, minutesOfDay, minutesToHHMM } = bd;
 
@@ -942,7 +958,9 @@ async function handleApi(req, res, url) {
       GROUP BY u.id ORDER BY score DESC, u.total_score DESC, u.created_at ASC`).all(seasonCutoff());
     const readMap = new Map(db.prepare('SELECT user_id, SUM(points) s FROM read_daily WHERE day>=? GROUP BY user_id')
       .all(seasonCutoff().slice(0, 10)).map((x) => [x.user_id, x.s]));
-    for (const r of rows) r.score += readMap.get(r.id) || 0;
+    const wordMap = new Map(db.prepare('SELECT user_id, SUM(points) s FROM word_daily WHERE day>=? GROUP BY user_id')
+      .all(seasonCutoff().slice(0, 10)).map((x) => [x.user_id, x.s]));
+    for (const r of rows) r.score += (readMap.get(r.id) || 0) + (wordMap.get(r.id) || 0);
     /* 历史平均打卡时间：用真实点击时间戳（北京时间 HH:mm）求平均，早起者更早 */
     const acc = new Map();
     for (const c of db.prepare("SELECT user_id, created_at FROM records WHERE type='checkin' AND deleted_at IS NULL").all()) {
@@ -1017,6 +1035,78 @@ async function handleApi(req, res, url) {
     });
   }
 
+
+
+  /* ================= 抽词卡牌 ================= */
+  const WORD_LIMIT = 3, WORD_DRAW_SIZE = 5, WORD_DRAW_POINTS = 2, WORD_LEARN_POINTS = 2;
+
+  function wordState(uid, day) {
+    const d = db.prepare('SELECT draws, points FROM word_daily WHERE user_id=? AND day=?').get(uid, day) || { draws: 0, points: 0 };
+    const rows = db.prepare(`SELECT uw.word_id, uw.learned FROM user_words uw WHERE uw.user_id=? AND uw.day=?`).all(uid, day);
+    const items = rows.map((r) => {
+      const w = WORDS[r.word_id - 1];
+      return w ? { id: w.id, w: w.w, pos: w.pos, zh: w.zh, ex: w.ex, learned: !!r.learned } : null;
+    }).filter(Boolean);
+    return { day, draws: d.draws, draws_left: Math.max(0, WORD_LIMIT - d.draws), limit: WORD_LIMIT, points_today: d.points, words: items };
+  }
+
+  function wordOptions(word) {
+    const pool = WORDS.filter((x) => x.id !== word.id && x.zh !== word.zh);
+    const picks = [];
+    while (picks.length < 3 && pool.length) {
+      const i = Math.floor(Math.random() * pool.length);
+      picks.push(pool.splice(i, 1)[0].zh);
+    }
+    const opts = picks.concat(word.zh);
+    for (let i = opts.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [opts[i], opts[j]] = [opts[j], opts[i]];
+    }
+    return opts;
+  }
+
+  if (p === '/api/words/state' && method === 'GET') {
+    return sendJSON(res, 200, wordState(me.id, businessDay()));
+  }
+
+  if (p === '/api/words/draw' && method === 'POST') {
+    const day = businessDay();
+    const st = wordState(me.id, day);
+    if (st.draws_left <= 0) return sendJSON(res, 429, { error: `每天最多抽 ${WORD_LIMIT} 次` });
+    const owned = new Set(db.prepare('SELECT word_id FROM user_words WHERE user_id=?').all(me.id).map((r) => r.word_id));
+    let pool = WORDS.filter((w) => !owned.has(w.id));
+    if (pool.length < WORD_DRAW_SIZE) pool = WORDS.filter((w) => !st.words.some((x) => x.id === w.id));
+    const picked = [];
+    while (picked.length < WORD_DRAW_SIZE && pool.length) {
+      picked.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    }
+    if (!picked.length) return sendJSON(res, 429, { error: '词库已抽完' });
+    for (const w of picked) {
+      db.prepare('INSERT OR IGNORE INTO user_words (user_id,word_id,day,learned) VALUES (?,?,?,0)').run(me.id, w.id, day);
+    }
+    db.prepare('INSERT INTO word_daily (user_id,day,draws,points) VALUES (?,?,1,?) ON CONFLICT(user_id,day) DO UPDATE SET draws=draws+1, points=points+?')
+      .run(me.id, day, WORD_DRAW_POINTS, WORD_DRAW_POINTS);
+    db.prepare('UPDATE users SET total_score = total_score + ? WHERE id=?').run(WORD_DRAW_POINTS, me.id);
+    return sendJSON(res, 200, {
+      words: picked.map((w) => ({ id: w.id, w: w.w, pos: w.pos, zh: w.zh, ex: w.ex, options: wordOptions(w), learned: false })),
+      gained: WORD_DRAW_POINTS,
+      state: wordState(me.id, day),
+    });
+  }
+
+  if (p === '/api/words/learn' && method === 'POST') {
+    const b = JSON.parse((await readBody(req)).toString() || '{}');
+    const wid = Number(b.word_id);
+    const day = businessDay();
+    const row = db.prepare('SELECT learned FROM user_words WHERE user_id=? AND word_id=?').get(me.id, wid);
+    if (!row) return sendJSON(res, 404, { error: '还没有抽到这个词' });
+    if (row.learned) return sendJSON(res, 200, { ok: true, gained: 0, state: wordState(me.id, day) });
+    db.prepare('UPDATE user_words SET learned=1, learned_at=? WHERE user_id=? AND word_id=?').run(nowCN(), me.id, wid);
+    db.prepare('INSERT INTO word_daily (user_id,day,draws,points) VALUES (?,?,0,?) ON CONFLICT(user_id,day) DO UPDATE SET points=points+?')
+      .run(me.id, day, WORD_LEARN_POINTS, WORD_LEARN_POINTS);
+    db.prepare('UPDATE users SET total_score = total_score + ? WHERE id=?').run(WORD_LEARN_POINTS, me.id);
+    return sendJSON(res, 200, { ok: true, gained: WORD_LEARN_POINTS, state: wordState(me.id, day) });
+  }
 
   /* ================= 沉浸阅读 ================= */
   if ((p === '/api/read/today' || p === '/api/read/list') && method === 'GET') {
@@ -1542,7 +1632,8 @@ const server = http.createServer(async (req, res) => {
       return serveFile(res, safeJoin(UPLOAD_DIR, fname), 'private, max-age=86400');
     }
 
-    const rel = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/+/, '');
+    let rel = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/+/, '');
+    if (rel.endsWith('/')) rel += 'index.html';
     const f = safeJoin(PUBLIC_DIR, rel);
     if (!f) { res.writeHead(400); res.end('bad path'); return; }
     return serveFile(res, f, 'no-cache');

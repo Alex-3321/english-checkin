@@ -132,7 +132,7 @@ async function loadSiteTitle() {
 }
 
 /* ================= 路由 ================= */
-const ROUTES = ['auth', 'home', 'rank', 'read', 'me', 'user', 'friends', 'chat', 'admin'];
+const ROUTES = ['auth', 'home', 'rank', 'read', 'words', 'me', 'user', 'friends', 'chat', 'admin'];
 
 function showView(name) {
   ROUTES.forEach((v) => { const el = $(`#view-${v}`); if (el) el.hidden = v !== name; });
@@ -166,6 +166,7 @@ async function router() {
     if (route === 'home') { showView('home'); await loadHome(); }
     else if (route === 'rank') { showView('rank'); renderSkeleton($('#rankList')); await loadRank(); }
     else if (route === 'read') { showView('read'); await loadRead(); }
+    else if (route === 'words') { showView('words'); await loadWords(); }
     else if (route === 'me') { showView('me'); await loadMe(); }
     else if (route === 'user' && param) { showView('user'); await loadUser(Number(param)); }
     else if (route === 'friends') { showView('friends'); await loadFriends(); }
@@ -524,6 +525,135 @@ $('#announceOk').addEventListener('click', () => {
   if (location.hash !== '#/me') location.hash = '#/me';
 });
 
+
+
+/* ================= 抽词卡牌 ================= */
+const wordState = { data: null, active: null };
+
+function renderWordState(d) {
+  wordState.data = d;
+  $('#wordScore').textContent = `今日 ${d.points_today} 分`;
+  $('#wordDraws').textContent = d.draws_left > 0 ? `还可抽 ${d.draws_left} 次` : '今日已抽完';
+  $('#drawWords').disabled = d.draws_left <= 0;
+  const box = $('#wordCards');
+  if (!d.words.length) { box.innerHTML = ''; $('#wordEmpty').hidden = false; return; }
+  $('#wordEmpty').hidden = true;
+  box.innerHTML = d.words.map((w) => `
+    <button class="word-card ${w.learned ? 'is-learned' : ''}" data-word="${w.id}">
+      <div>
+        <div class="wc-word">${esc(w.w)}</div>
+        <div class="wc-pos">${esc(w.pos)}</div>
+      </div>
+      <div class="wc-zh">${esc(w.zh)}</div>
+      <span class="wc-tag">${w.learned ? '已掌握' : '待背'}</span>
+    </button>`).join('');
+  box.querySelectorAll('[data-word]').forEach((el) => el.addEventListener('click', () => {
+    const w = d.words.find((x) => x.id === Number(el.dataset.word));
+    if (w) openWordStudy(w);
+  }));
+}
+
+async function loadWords() {
+  const d = await api('/api/words/state');
+  renderWordState(d);
+}
+
+function openWordStudy(w) {
+  wordState.active = w;
+  const box = $('#wordStudy');
+  if (w.learned) {
+    box.innerHTML = `<p class="word-step">MASTERED</p>
+      <div class="word-big">${esc(w.w)}</div><div class="word-ipa">${esc(w.pos)} ${esc(w.zh)}</div>
+      <p class="word-feedback">这个词今天已经掌握了。</p>`;
+    $('#wordModal').hidden = false;
+    return;
+  }
+  box.innerHTML = `
+    <p class="word-step">STEP 1 · 选择词义</p>
+    <div class="word-big">${esc(w.w)}</div>
+    <div class="word-ipa">${esc(w.pos)}</div>
+    <div class="word-opts">${w.options.map((o) => `<button class="word-opt" data-opt="${esc(o)}">${esc(o)}</button>`).join('')}</div>
+    <p class="word-feedback" id="wordFeedback"></p>`;
+  $('#wordModal').hidden = false;
+  box.querySelectorAll('[data-opt]').forEach((btn) => btn.addEventListener('click', () => {
+    const ok = btn.dataset.opt === w.zh;
+    box.querySelectorAll('[data-opt]').forEach((b) => {
+      if (b.dataset.opt === w.zh) b.classList.add('is-right');
+      else if (b === btn) b.classList.add('is-wrong');
+    });
+    if (!ok) { $('#wordFeedback').textContent = '再想想，正确答案已标出'; return; }
+    setTimeout(() => wordStepSpell(w), 350);
+  }));
+}
+
+function wordStepSpell(w) {
+  const box = $('#wordStudy');
+  box.innerHTML = `
+    <p class="word-step">STEP 2 · 拼写单词</p>
+    <div class="word-ipa">${esc(w.pos)} ${esc(w.zh)}</div>
+    <p class="word-feedback" id="wordFeedback">根据释义拼出这个单词，首字母：${esc(w.w[0])}</p>
+    <input class="word-input" id="wordSpell" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入单词">
+    <div class="confirm-actions" style="margin-top:14px">
+      <button class="btn btn-line" id="wordHint">看例句</button>
+      <button class="btn btn-primary" id="wordSubmit">提交</button>
+    </div>
+    <p class="word-feedback" id="wordExample" hidden></p>`;
+  const input = $('#wordSpell');
+  input.focus();
+  $('#wordHint').addEventListener('click', () => {
+    const ex = $('#wordExample');
+    ex.hidden = false;
+    ex.textContent = `例句：${w.ex}`;
+  });
+  const submit = async () => {
+    const val = input.value.trim().toLowerCase();
+    if (!val) return;
+    if (val !== w.w.toLowerCase()) {
+      $('#wordFeedback').textContent = '拼写不对，再试一次（首字母：' + w.w[0] + '）';
+      input.select();
+      return;
+    }
+    try {
+      const r = await api('/api/words/learn', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word_id: w.id }),
+      });
+      w.learned = true;
+      renderWordState(r.state);
+      box.innerHTML = `<p class="word-step">DONE</p>
+        <div class="word-big">${esc(w.w)}</div>
+        <div class="word-ipa">${esc(w.pos)} ${esc(w.zh)}</div>
+        <p class="word-feedback">拼写正确，+${r.gained} 分。今日抽词 ${r.state.points_today} 分。</p>`;
+    } catch (e) { $('#wordFeedback').textContent = e.message; }
+  };
+  $('#wordSubmit').addEventListener('click', submit);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+}
+
+$('#drawWords').addEventListener('click', async () => {
+  const btn = $('#drawWords');
+  btn.disabled = true; btn.textContent = '拆包中…';
+  try {
+    const r = await api('/api/words/draw', { method: 'POST' });
+    renderWordState(r.state);
+    toast(`抽到 5 个词，+${r.gained} 分`);
+    const words = r.words;
+    const box = $('#wordCards');
+    box.innerHTML = words.map((w) => `
+      <button class="word-card" data-word="${w.id}">
+        <div><div class="wc-word">${esc(w.w)}</div><div class="wc-pos">${esc(w.pos)}</div></div>
+        <div class="wc-zh">${esc(w.zh)}</div><span class="wc-tag">待背</span>
+      </button>`).join('');
+    box.querySelectorAll('[data-word]').forEach((el) => el.addEventListener('click', () => {
+      const w = words.find((x) => x.id === Number(el.dataset.word));
+      if (w) openWordStudy(w);
+    }));
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = '抽 5 个词'; }
+});
+
+$('#wordClose').addEventListener('click', () => { $('#wordModal').hidden = true; });
+$('#wordModal').addEventListener('click', (e) => { if (e.target.id === 'wordModal') $('#wordModal').hidden = true; });
 
 /* ================= 沉浸阅读 ================= */
 const readState = { list: null, article: null, mode: 'off', archived: false, timer: null, articleId: null };
