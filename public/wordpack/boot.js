@@ -106,6 +106,16 @@ async function init() {
   }, { once: true });
 }
 
+window.addEventListener('error', (e) => {
+  if (!document.body.classList.contains('word-mode')) return;
+  const cover = document.getElementById('bootCover');
+  const err = document.getElementById('bootError');
+  const start = document.getElementById('bootStart');
+  if (cover) cover.hidden = false;
+  if (err) { err.hidden = false; err.textContent = '引擎加载出错：' + (e.message || '未知错误'); }
+  if (start) { start.disabled = false; start.textContent = '重试'; start.onclick = () => location.reload(); }
+});
+
 window.addEventListener('pageshow', (e) => { if (e.persisted) location.reload(); });
 
 init();
