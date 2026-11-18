@@ -473,6 +473,34 @@ async function doUpload(file) {
   }
 }
 
+
+/* ================= 段位展示 ================= */
+function rankChip(rank, size) {
+  if (!rank || !window.RankSystem) return '';
+  return `<span class="rank-chip" title="${esc(rank.cn)} · ${rank.en}">${RankSystem.svg(rank.key, size || 26)}</span>`;
+}
+
+function openRankModal(rank, score) {
+  if (!window.RankSystem) return;
+  $('#rankCur').innerHTML = RankSystem.svg(rank.key, 112)
+    + `<div class="rc-en">${rank.en}</div><div class="rc-cn">${rank.cn}</div><div class="rc-score">当前积分 ${score}</div>`;
+  if (rank.isMax) {
+    $('#rankNxt').innerHTML = '<div class="rn-max">已达最高境界，一览众山小</div>';
+  } else {
+    $('#rankNxt').innerHTML = `
+      <div class="rn-title">下一段位</div>
+      ${RankSystem.svg(rank.next.key, 84, { dim: true })}
+      <div class="rn-cn">${rank.next.cn} · ${rank.next.en}</div>
+      <div class="rn-need">还差 ${rank.need} 积分（${rank.next.base} 分起）</div>`;
+  }
+  $('#rankModal').hidden = false;
+}
+
+$('#rankClose').addEventListener('click', () => { $('#rankModal').hidden = true; });
+$('#rankModal').addEventListener('click', (e) => {
+  if (e.target.id === 'rankModal') $('#rankModal').hidden = true;
+});
+
 /* ================= 排行榜 ================= */
 async function loadRank() {
   const d = await api('/api/leaderboard');
@@ -489,7 +517,7 @@ async function loadRank() {
       <div class="board-rank">${String(r.rank).padStart(2, '0')}</div>
       ${avatarHtml(r, 'avatar-sm')}
       <div class="board-main">
-        <div class="board-name">${esc(r.name)}</div>
+        <div class="board-name">${rankChip(r.rank, 26)}<span>${esc(r.name)}</span></div>
         <div class="board-meta">${esc(r.class_name)} · 签到 ${r.checkin_days || 0} 天 / 打卡 ${r.upload_days || 0} 天${r.avg_time ? ` · 平均 ${r.avg_time}` : ''}</div>
       </div>
       <div class="board-score">${r.score}<small>分</small></div>`;
@@ -511,6 +539,19 @@ async function loadMe() {
     <span><strong>${d.quarter_score}</strong> 本季</span>
     <span><strong>${d.user.total_score}</strong> 总分</span>`;
   $('#privacyToggle').checked = !!d.user.is_public;
+
+  /* 段位 */
+  const rk = d.user.rank || RankSystem.of(d.user.total_score);
+  $('#meRank').innerHTML = RankSystem.svg(rk.key, 36)
+    + `<span class="rank-en">${rk.en}</span><span class="rank-cn">${rk.cn}</span>`;
+  $('#meRank').onclick = () => openRankModal(rk, d.user.total_score);
+  if (rk.isMax) {
+    $('#meRankBar').style.width = '100%';
+    $('#meRankHint').textContent = '已达最高境界，一览众山小';
+  } else {
+    $('#meRankBar').style.width = (rk.progress * 100).toFixed(1) + '%';
+    $('#meRankHint').textContent = `距离 ${rk.next.cn} 还需 ${rk.need} 积分`;
+  }
 
   const prof = await api(`/api/users/${d.user.id}`);
   renderAlbum($('#myAlbum'), prof.photos, $('#myAlbumEmpty'), '还没有打卡照片，今天就开始吧。', d.user.id);
@@ -614,6 +655,11 @@ async function loadUser(id) {
   state.currentUser = d.user;
   $('#otherAvatar').outerHTML = avatarHtml(d.user, 'avatar-lg').replace('class="avatar avatar-lg', 'id="otherAvatar" class="avatar avatar-lg');
   $('#otherName').textContent = d.user.name;
+  if (d.user.rank) {
+    $('#otherRank').innerHTML = RankSystem.svg(d.user.rank.key, 30)
+      + `<span class="rank-en">${d.user.rank.en}</span><span class="rank-cn">${d.user.rank.cn}</span>`;
+    $('#otherRank').onclick = () => openRankModal(d.user.rank, d.user.total_score);
+  }
   $('#otherMeta').textContent = `${d.user.class_name}　·　学号 ${d.user.student_id}`;
   $('#otherStats').innerHTML = `<span><strong>${d.quarter_score}</strong> 本季</span><span><strong>${d.user.total_score}</strong> 总分</span>`;
 

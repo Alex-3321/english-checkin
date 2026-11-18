@@ -771,3 +771,32 @@ body > * { position: relative; z-index: 1; }
 .appeal-status { font-size: 10.5px; letter-spacing: .12em; padding: 2px 8px; border: 1px solid var(--line-strong); }
 .appeal-status.pending { color: #B45309; border-color: #B45309; }
 .appeal-status.resolved { color: var(--ink); border-color: var(--ink); }
+
+/* ---------- 段位 ---------- */
+.rank-badge{
+  display:inline-flex;align-items:center;gap:8px;background:none;border:0;padding:0;
+  cursor:pointer;color:var(--ink);font:inherit;margin:4px 0 6px;
+}
+.rank-badge svg{display:block;flex:none}
+.rank-badge .rank-en{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint)}
+.rank-badge .rank-cn{font-size:14px;font-weight:700}
+.rank-progress{max-width:320px;margin:0 0 10px}
+.rank-bar{height:4px;background:rgba(26,54,45,.12);overflow:hidden}
+.rank-bar i{display:block;height:100%;background:linear-gradient(90deg,#8C92AC,#B9923F);width:0;transition:width .6s ease}
+.rank-hint{margin:6px 0 0;font-size:11.5px;color:var(--faint);letter-spacing:.03em}
+.rank-box{width:min(92vw,420px);text-align:center}
+.rank-cur svg,.rank-nxt svg{margin:0 auto}
+.rank-cur .rc-en{font-size:11px;letter-spacing:.26em;text-transform:uppercase;color:var(--faint);margin-top:10px}
+.rank-cur .rc-cn{font-size:20px;font-weight:700;margin-top:2px}
+.rank-cur .rc-score{font-size:11.5px;color:var(--faint);margin-top:4px}
+.rank-sep{height:1px;background:var(--line);margin:18px 0}
+.rank-nxt{opacity:.95}
+.rank-nxt .rn-title{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);margin-top:8px}
+.rank-nxt .rn-cn{font-size:15px;font-weight:700;margin-top:2px}
+.rank-nxt .rn-need{font-size:12px;color:var(--gold);margin-top:6px}
+.rank-nxt .rn-max{font-size:15px;font-weight:700;color:var(--gold);padding:22px 0 8px;letter-spacing:.06em}
+.board-item .rank-chip{flex:none;margin-right:2px}
+
+/* 排行榜名字行的段位小图标 */
+.board-name{display:flex;align-items:center;gap:7px;min-width:0}
+.board-name .rank-chip{display:inline-flex;flex:none}

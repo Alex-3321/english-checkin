@@ -276,6 +276,33 @@ function cookies(req) {
   return out;
 }
 const PUBLIC_COLS = 'id, student_id, name, class_name, total_score, avatar, is_public, is_hidden, role, created_at';
+
+/* ================= 段位系统 ================= */
+const RANKS = [
+  { key: 'nascent',      en: 'Nascent',      cn: '微光初现', base: 0 },
+  { key: 'ascendant',    en: 'Ascendant',    cn: '渐入佳境', base: 200 },
+  { key: 'virtuoso',     en: 'Virtuoso',     cn: '游刃有余', base: 700 },
+  { key: 'paragon',      en: 'Paragon',      cn: '卓尔不群', base: 1400 },
+  { key: 'erudite',      en: 'Erudite',      cn: '博文约礼', base: 2100 },
+  { key: 'steadfast',    en: 'Steadfast',    cn: '跬步千里', base: 2700 },
+  { key: 'sublime',      en: 'Sublime',      cn: '高山仰止', base: 3200 },
+  { key: 'transcendent', en: 'Transcendent', cn: '超然物外', base: 3500 },
+  { key: 'zenith',       en: 'Zenith',       cn: '十年磨剑', base: 3800 },
+];
+
+function rankInfo(score) {
+  score = Number(score) || 0;
+  let idx = 0;
+  for (let i = 0; i < RANKS.length; i++) if (score >= RANKS[i].base) idx = i;
+  const cur = RANKS[idx], nxt = RANKS[idx + 1] || null;
+  return {
+    key: cur.key, en: cur.en, cn: cur.cn, base: cur.base, index: idx,
+    next: nxt ? { key: nxt.key, en: nxt.en, cn: nxt.cn, base: nxt.base } : null,
+    need: nxt ? Math.max(0, nxt.base - score) : 0,
+    progress: nxt ? Math.max(0, Math.min(1, (score - cur.base) / (nxt.base - cur.base))) : 1,
+    isMax: !nxt,
+  };
+}
 /* 返回 { user } | { code: 'invalid' | 'kicked' } */
 function resolveSession(req) {
   const p = verify(cookies(req).sid);
@@ -498,7 +525,10 @@ async function handleApi(req, res, url) {
 
   if (p === '/api/me' && method === 'GET') {
     return sendJSON(res, 200, {
-      user: { ...me, total_score: db.prepare('SELECT total_score FROM users WHERE id=?').get(me.id).total_score },
+      user: (() => {
+        const total = db.prepare('SELECT total_score FROM users WHERE id=?').get(me.id).total_score;
+        return { ...me, total_score: total, rank: rankInfo(total) };
+      })(),
       quarter: quarterInfo(),
       season_cutoff: seasonCutoff(),
       quarter_score: quarterScore(me.id),
@@ -631,7 +661,7 @@ async function handleApi(req, res, url) {
     const enriched = rows.map((r) => {
       const a = acc.get(r.id);
       const avg = a && a.n ? a.sum / a.n : null;
-      return { ...r, avg_min: avg, avg_time: minutesToHHMM(avg) };
+      return { ...r, avg_min: avg, avg_time: minutesToHHMM(avg), rank: rankInfo(r.total_score) };
     });
 
     /* 排序：本季积分降序 → 平均打卡时间升序（早者靠前，无记录排最后）→ 总积分降序 */
@@ -680,6 +710,7 @@ async function handleApi(req, res, url) {
     return sendJSON(res, 200, {
       user: {
         ...u,
+        rank: rankInfo(u.total_score),
         is_friend: isFriend(me.id, id),
         likes: likeCount(id),
         liked_today: !!db.prepare('SELECT 1 FROM likes WHERE from_id=? AND to_id=? AND day=?').get(me.id, id, todayStr()),

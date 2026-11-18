@@ -182,6 +182,11 @@
       <div class="profile-info">
         <h2 class="display-sm" id="meName">—</h2>
         <p class="lede" id="meMeta">—</p>
+        <button class="rank-badge" id="meRank" type="button" title="查看段位详情"></button>
+        <div class="rank-progress">
+          <div class="rank-bar"><i id="meRankBar"></i></div>
+          <p class="rank-hint" id="meRankHint">—</p>
+        </div>
         <div class="profile-stats" id="meStats"></div>
       </div>
     </div>
@@ -219,6 +224,7 @@
       <div class="avatar avatar-lg" id="otherAvatar"></div>
       <div class="profile-info">
         <h2 class="display-sm" id="otherName">—</h2>
+        <button class="rank-badge" id="otherRank" type="button" title="段位"></button>
         <p class="lede" id="otherMeta">—</p>
         <div class="profile-stats" id="otherStats"></div>
       </div>
@@ -367,6 +373,18 @@
   </div>
 </div>
 
+<!-- 段位详情 -->
+<div class="confirm" id="rankModal" hidden>
+  <div class="confirm-box rank-box">
+    <div class="rank-cur" id="rankCur"></div>
+    <div class="rank-sep"></div>
+    <div class="rank-nxt" id="rankNxt"></div>
+    <div class="confirm-actions">
+      <button type="button" class="btn btn-primary" id="rankClose">关闭</button>
+    </div>
+  </div>
+</div>
+
 <!-- 管理员终审回复 -->
 <div class="confirm" id="replyModal" hidden>
   <div class="confirm-box">
@@ -434,6 +452,7 @@
   </div>
 </div>
 
+<script src="/ranks.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
