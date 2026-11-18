@@ -168,6 +168,7 @@ db.exec(`
   const qcols = db.prepare('PRAGMA table_info(read_quota)').all().map((c) => c.name);
   if (qcols.length && !qcols.includes('current_seq')) db.exec('ALTER TABLE read_quota ADD COLUMN current_seq INTEGER NOT NULL DEFAULT 0');
   if (qcols.length && !qcols.includes('current_batch')) db.exec('ALTER TABLE read_quota ADD COLUMN current_batch INTEGER NOT NULL DEFAULT 0');
+  if (qcols.length && !qcols.includes('difficulty')) db.exec('ALTER TABLE read_quota ADD COLUMN difficulty TEXT');
 
   if (!ucols.includes('allow_multi_device')) db.exec('ALTER TABLE users ADD COLUMN allow_multi_device INTEGER NOT NULL DEFAULT 0');
 
@@ -518,9 +519,16 @@ function seedRand(seed) {
 }
 
 /* 为某个用户当天挑 10 篇：优先从未出现过的文章里选，池子不够时用最久未用的补 */
-function pickDailySet(uid, day, n) {
+function pickDailySet(uid, day, n, difficulty) {
   const used = new Set(db.prepare('SELECT article_id FROM read_served WHERE user_id=?').all(uid).map((r) => r.article_id));
-  const all = readingLib.ARTICLES.map((a) => a.id);
+  const rank = { '初级': 0, '中级': 1, '高级': 2 };
+  const pref = rank[difficulty] == null ? 1 : rank[difficulty];
+  const list = [...readingLib.ARTICLES].sort((x, y) => {
+    const dx = Math.abs(rank[x.difficulty] - pref);
+    const dy = Math.abs(rank[y.difficulty] - pref);
+    return dx - dy || x.id - y.id;
+  });
+  const all = list.map((a) => a.id);
   const unseen = all.filter((id) => !used.has(id));
   const rand = seedRand(Number(String(uid).replace(/\D/g, '')) * 7919 + Number(String(day).replace(/\D/g, '')));
   const shuffle = (arr) => {
@@ -555,7 +563,8 @@ function ensureBatch(uid, day, batch) {
   const usedToday = new Set(rows.map((r) => r.article_id));
   const usedAll = new Set(db.prepare('SELECT article_id FROM read_served WHERE user_id=?').all(uid).map((r) => r.article_id));
   const need = missing.length + usedToday.size;
-  const picks = pickDailySet(uid, day, Math.max(need, READ.batchSize)).filter((id) => !usedToday.has(id));
+  const q = readQuota(uid, day);
+  const picks = pickDailySet(uid, day, Math.max(need, READ.batchSize), q.difficulty).filter((id) => !usedToday.has(id));
   for (const seq of missing) {
     const id = picks.shift();
     if (!id) break;
@@ -576,7 +585,7 @@ function readListPayload(uid, day) {
   const q = readQuota(uid, day);
   const curBatch = Number(q.current_batch) || 1;
   const batches = [];
-  for (let b = 1; b <= curBatch; b++) {
+  for (let b = curBatch; b <= curBatch; b++) {
     const rows = db.prepare(`SELECT seq, article_id FROM read_served WHERE user_id=? AND day=? AND seq BETWEEN ? AND ? ORDER BY seq`)
       .all(uid, day, (b - 1) * READ.batchSize + 1, b * READ.batchSize);
     batches.push({
@@ -593,6 +602,8 @@ function readListPayload(uid, day) {
   return {
     day,
     batches,
+    difficulty: q.difficulty || null,
+    need_difficulty: !q.difficulty,
     current_batch: curBatch,
     batch_count: BATCH_COUNT(),
     remaining_refresh: Math.max(0, BATCH_COUNT() - curBatch),
@@ -1011,9 +1022,34 @@ async function handleApi(req, res, url) {
   if ((p === '/api/read/today' || p === '/api/read/list') && method === 'GET') {
     const day = businessDay();
     const q = readQuota(me.id, day);
+    if (!q.difficulty) {
+      return sendJSON(res, 200, {
+        need_difficulty: true,
+        difficulty: null,
+        day,
+        batches: [],
+        current_batch: 0,
+        batch_count: BATCH_COUNT(),
+        remaining_refresh: 0,
+        library_size: readingLib.ARTICLES.length,
+        progress: { day, daily_seconds: readDaily(me.id, day).seconds, daily_points: readDaily(me.id, day).points, daily_cap: READ.dailyCap, article_cap: READ.perArticleCap, refreshed: 0, refresh_limit: BATCH_COUNT() - 1 },
+      });
+    }
     const batch = Number(q.current_batch) || 1;
     ensureBatch(me.id, day, batch);
     db.prepare('UPDATE read_quota SET current_batch=? WHERE user_id=? AND day=?').run(batch, me.id, day);
+    return sendJSON(res, 200, readListPayload(me.id, day));
+  }
+
+  if (p === '/api/read/difficulty' && method === 'POST') {
+    const b = JSON.parse((await readBody(req)).toString() || '{}');
+    const level = String(b.level || '');
+    if (!['初级', '中级', '高级'].includes(level)) return sendJSON(res, 400, { error: '难度不合法' });
+    const day = businessDay();
+    readQuota(me.id, day);
+    db.prepare('UPDATE read_quota SET difficulty=?, current_batch=1, refreshed=0 WHERE user_id=? AND day=?').run(level, me.id, day);
+    db.prepare('DELETE FROM read_served WHERE user_id=? AND day=?').run(me.id, day);
+    ensureBatch(me.id, day, 1);
     return sendJSON(res, 200, readListPayload(me.id, day));
   }
 

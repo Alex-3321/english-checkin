@@ -611,8 +611,8 @@ function renderReadList(d) {
   readState.progress = { ...(readState.progress || {}), ...d.progress };
   const box = $('#readList');
   const total = d.batches.reduce((n, b) => n + b.items.length, 0);
-  $('#readListTitle').textContent = '今日阅读';
-  $('#readListSub').textContent = `共 ${total} 篇 · 每篇 ${d.progress.article_cap} 分封顶 · 今日上限 ${d.progress.daily_cap} 分`;
+  $('#readListTitle').textContent = `今日阅读 · ${d.difficulty || ''}`;
+  $('#readListSub').textContent = `本批 ${total} 篇 · 每篇 ${d.progress.article_cap} 分封顶 · 今日上限 ${d.progress.daily_cap} 分 · 07:00 可重选难度`;
   box.innerHTML = d.batches.map((b) => `
     <div class="read-batch">
       <p class="read-batch-label">第 ${b.batch} 批 · ${b.items.length} 篇</p>
@@ -651,8 +651,34 @@ async function openReadArticle(id) {
 
 async function loadRead() {
   const d = await api('/api/read/list');
+  if (d.need_difficulty) {
+    $('#diffChoice').hidden = false;
+    $('#readList').hidden = true;
+    $('#refreshList').hidden = true;
+    $('#readDetail').hidden = true;
+    stopReadTimer();
+    return;
+  }
+  $('#diffChoice').hidden = true;
   renderReadList(d);
 }
+
+$('#diffChoice').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-level]');
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    const d = await api('/api/read/difficulty', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level: btn.dataset.level }),
+    });
+    readState.difficulty = btn.dataset.level;
+    $('#diffChoice').hidden = true;
+    renderReadList(d);
+    toast(`今日难度：${btn.dataset.level}`);
+  } catch (err) { toast(err.message, true); }
+  finally { btn.disabled = false; }
+});
 
 async function loadReadHistory() {
   try {
