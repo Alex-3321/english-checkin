@@ -621,7 +621,7 @@ function renderReadList(d) {
           <button type="button" class="read-card" data-read="${it.id}">
             <span class="rc-top"><span class="rc-cn">${esc(it.title_cn)}</span>${it.points ? `<span class="rc-done">${it.points} 分</span>` : ''}</span>
             <span class="rc-en">${esc(it.title_en)}</span>
-            <span class="rc-meta"><span>${it.words} 词</span><span>${esc(it.level || '')}</span><span>${it.read_seconds ? Math.floor(it.read_seconds / 60) + ' 分钟' : '未读'}</span></span>
+            <span class="rc-meta"><span>${esc(it.kind || '阅读')}</span><span>${it.words} 词</span><span>${it.read_seconds ? Math.floor(it.read_seconds / 60) + ' 分钟' : '未读'}</span></span>
           </button>`).join('')}
       </div>
     </div>`).join('');

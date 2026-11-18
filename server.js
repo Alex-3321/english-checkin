@@ -569,7 +569,7 @@ function listItem(row) {
   const lib = readingLib.byId(row.article_id);
   if (!lib) return null;
   const read = db.prepare('SELECT seconds,points FROM article_reads WHERE user_id=? AND article_id=?').get(row.user_id || 0, lib.id) || { seconds: 0, points: 0 };
-  return { id: lib.id, seq: row.seq, title_cn: lib.title_cn, title_en: lib.title_en, level: lib.level, words: lib.words || 0, read_seconds: read.seconds, points: read.points };
+  return { id: lib.id, seq: row.seq, title_cn: lib.title_cn, title_en: lib.title_en, level: lib.level, kind: lib.kind, words: lib.words || 0, read_seconds: read.seconds, points: read.points };
 }
 
 function readListPayload(uid, day) {
@@ -585,7 +585,7 @@ function readListPayload(uid, day) {
         const lib = readingLib.byId(r.article_id);
         if (!lib) return null;
         const read = db.prepare('SELECT seconds,points FROM article_reads WHERE user_id=? AND article_id=?').get(uid, lib.id) || { seconds: 0, points: 0 };
-        return { id: lib.id, seq: r.seq, title_cn: lib.title_cn, title_en: lib.title_en, level: lib.level, words: lib.words || 0, read_seconds: read.seconds, points: read.points };
+        return { id: lib.id, seq: r.seq, title_cn: lib.title_cn, title_en: lib.title_en, level: lib.level, kind: lib.kind, words: lib.words || 0, read_seconds: read.seconds, points: read.points };
       }).filter(Boolean),
     });
   }
@@ -624,7 +624,7 @@ function servedArticle(uid, day, seq, create) {
   return {
     id: lib.id, key: lib.key, title_en: lib.title_en, title_cn: lib.title_cn,
     level: lib.level, intro_cn: lib.intro_cn, summary_cn: lib.summary_cn,
-    paragraphs: lib.paragraphs, source: readingLib.SOURCE, license: readingLib.LICENSE,
+    paragraphs: lib.paragraphs, source: lib.source, license: lib.license, kind: lib.kind,
     read_seconds: read.seconds, points: read.points,
   };
 }
@@ -647,7 +647,7 @@ function readHistory(uid, n) {
     const lib = readingLib.byId(r.article_id);
     if (!lib) continue;
     const d = byDay.get(r.day);
-    if (d) d.push({ id: lib.id, seq: r.seq, title_en: lib.title_en, title_cn: lib.title_cn, level: lib.level, source: readingLib.SOURCE });
+    if (d) d.push({ id: lib.id, seq: r.seq, title_en: lib.title_en, title_cn: lib.title_cn, level: lib.level, source: lib.source });
   }
   return days.map((d) => ({ day: d, items: byDay.get(d) }));
 }
@@ -1088,7 +1088,7 @@ async function handleApi(req, res, url) {
     if (!lib) return sendJSON(res, 404, { error: '文章不存在' });
     const read = db.prepare('SELECT seconds,points FROM article_reads WHERE user_id=? AND article_id=?').get(me.id, aid) || { seconds: 0, points: 0 };
     return sendJSON(res, 200, {
-      article: { ...lib, source: readingLib.SOURCE, license: readingLib.LICENSE, read_seconds: read.seconds, points: read.points },
+      article: { ...lib, source: lib.source, license: lib.license, read_seconds: read.seconds, points: read.points },
       archived: !db.prepare('SELECT 1 FROM read_served WHERE user_id=? AND day=? AND article_id=?').get(me.id, businessDay(), aid),
     });
   }
