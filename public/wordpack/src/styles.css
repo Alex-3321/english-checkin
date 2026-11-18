@@ -2183,6 +2183,7 @@ html[data-studio-light="day"] .pity-meter.pity-ready .console-val {
 }
 .pack-back:hover{border-color:#D4AF37;background:rgba(10,16,14,.8)}
 
+.boot-cover[hidden]{display:none}
 .boot-cover{
   position:fixed;inset:0;z-index:50;display:grid;place-items:center;
   background:radial-gradient(80% 60% at 50% 0%,rgba(212,175,55,.14),transparent 60%),

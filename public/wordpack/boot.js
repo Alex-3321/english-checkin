@@ -18,7 +18,7 @@ function showError(msg) {
 
 function setLoading(on) {
   startBtn.disabled = on;
-  startBtn.textContent = on ? '准备中…' : '开始抽卡';
+  startBtn.textContent = on ? '抽卡中…' : '开始抽卡';
 }
 
 const FORCE_FRESH = new URLSearchParams(location.search).has('fresh');
@@ -37,22 +37,21 @@ function savePack(pack) {
 function launch(pack) {
   window.__WORD_PACK__ = pack;
   document.body.classList.add('word-mode');
-  const t0 = performance.now();
-  const done = () => {
-    cover.hidden = true;
-    console.log(`[wordpack] ready in ${Math.round(performance.now() - t0)}ms`);
-  };
-  window.addEventListener('wordpack-ready', done, { once: true });
-  setTimeout(done, 1600);            /* 兜底：引擎没发事件也不挡住画面 */
-  titleEl.textContent = '正在准备卡包…';
-  subEl.textContent = '全息引擎加载中';
-  leftEl.textContent = '';
+
+  /* 立刻让出画面：卡包舞台自己会入场，引擎在下面初始化 */
+  cover.hidden = true;
+  cover.style.display = 'none';
   startBtn.hidden = true;
+
   import('./src/main.js').catch(() => {
-    showError('加载卡包失败，请重试');
+    /* 只有真正加载失败才把遮罩放回来 */
     cover.hidden = false;
+    cover.style.display = '';
+    showError('加载卡包失败，请重试');
+    startBtn.hidden = false;
     startBtn.disabled = false;
     startBtn.textContent = '重试';
+    startBtn.onclick = () => location.reload();
   });
 }
 
@@ -84,11 +83,6 @@ async function init() {
     }
   }
   if (saved && saved.day === state.day) {
-    titleEl.textContent = `正在恢复第 ${saved.pack_no} 包`;
-    subEl.textContent = `还剩 ${saved.words.length} 张卡没看`;
-    leftEl.textContent = '这一包已经抽过，不会重复扣次数';
-    startBtn.textContent = '正在恢复…';
-    startBtn.disabled = true;
     launch(saved);
     return;
   }

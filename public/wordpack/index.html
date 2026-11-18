@@ -9,6 +9,9 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230d1511'/><path d='M16 4 19.2 12.8 28 16 19.2 19.2 16 28 12.8 19.2 4 16 12.8 12.8Z' fill='%2332ad62'/></svg>">
   <title>SimpleMkt · 典藏全息拆包互动台</title>
   <link rel="stylesheet" href="src/styles.css">
+  <link rel="modulepreload" href="src/main.js">
+  <link rel="modulepreload" href="src/cards-config.js">
+  <link rel="modulepreload" href="src/sound.js">
 </head>
 <body>
   <h1 class="sr-only">SimpleMkt 典藏全息拆包互动体验台</h1>
@@ -220,10 +223,6 @@
   </div>
 
   <p class="sr-only" id="liveStatus" aria-live="polite"></p>
-
-  <link rel="modulepreload" href="src/main.js">
-  <link rel="modulepreload" href="src/cards-config.js">
-  <link rel="modulepreload" href="src/sound.js">
-  <script type="module" src="boot.js"></script>
+  <script type="module" src="boot.js?v=3"></script>
 </body>
 </html>
