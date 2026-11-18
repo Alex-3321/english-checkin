@@ -132,7 +132,7 @@ async function loadSiteTitle() {
 }
 
 /* ================= 路由 ================= */
-const ROUTES = ['auth', 'home', 'rank', 'read', 'words', 'wordpack', 'wordbook', 'wordstudy', 'wordspell', 'me', 'user', 'friends', 'chat', 'admin'];
+const ROUTES = ['auth', 'home', 'rank', 'read', 'words', 'wordbook', 'wordstudy', 'wordspell', 'me', 'user', 'friends', 'chat', 'admin'];
 
 function showView(name) {
   ROUTES.forEach((v) => { const el = $(`#view-${v}`); if (el) el.hidden = v !== name; });
@@ -166,8 +166,8 @@ async function router() {
     if (route === 'home') { showView('home'); await loadHome(); }
     else if (route === 'rank') { showView('rank'); renderSkeleton($('#rankList')); await loadRank(); }
     else if (route === 'read') { showView('read'); await loadRead(); }
+    else if (route === 'wordpack') { location.replace('/wordpack/'); return; }
     else if (route === 'words') { showView('words'); await loadWords(); }
-    else if (route === 'wordpack') { showView('wordpack'); resetPackPage(); }
     else if (route === 'wordbook') { showView('wordbook'); await loadCollection(); }
     else if (route === 'wordstudy') { showView('wordstudy'); await loadStudy(); }
     else if (route === 'wordspell') { showView('wordspell'); await loadSpell(); }
@@ -561,107 +561,8 @@ async function loadWords() {
   syncWordScore(d);
 }
 
-$('#startPack').addEventListener('click', () => { location.hash = '#/wordpack'; });
-$('#goWords').addEventListener('click', () => { location.hash = '#/wordpack'; });
-
-/* ---------- 逐张抽卡 ---------- */
-function resetPackPage() {
-  $('#flipGrid').innerHTML = '';
-  $('#packActions').hidden = true;
-  $('#packDone').hidden = true;
-  $('#packCounter').hidden = true;
-  $('#pack').classList.remove('is-open', 'is-tearing');
-  $('#pack').style.display = '';
-  $('#packHint').textContent = '一次只翻一张，翻开后点「下一张」';
-  $('#openPack').disabled = false;
-  $('#openPack').hidden = false;
-  $('#flipBtn').hidden = false;
-  $('#nextBtn').hidden = true;
-  $('#finishPack').hidden = true;
-}
-
-function cardBackHTML() {
-  return `<div class="flip-card" id="currentCard">
-    <div class="flip-inner">
-      <div class="flip-face flip-back"><span>WORD</span></div>
-      <div class="flip-face flip-front"></div>
-    </div>
-  </div>`;
-}
-
-function cardFrontHTML(w) {
-  return `
-    <div class="fc-word">${esc(w.w)}</div>
-    <div class="fc-pos">${esc(w.pos)} ${esc(w.zh)}</div>
-    <div class="fc-phrase">常用搭配：${esc(w.phrase || '—')}${w.phrase_zh ? '（' + esc(w.phrase_zh) + '）' : ''}</div>
-    <div class="fc-ex"><b>例1</b>${esc(w.ex || '')}</div>
-    <div class="fc-ex"><b>例2</b>${esc(w.ex2 || '')}</div>`;
-}
-
-function renderCurrentCard() {
-  const w = wordState.pack.words[wordState.idx];
-  const grid = $('#flipGrid');
-  if (!w) return;
-  grid.innerHTML = cardBackHTML();
-  const card = $('#currentCard');
-  const front = card.querySelector('.flip-front');
-  front.innerHTML = cardFrontHTML(w);
-  $('#packCounter').hidden = false;
-  $('#packIdx').textContent = String(wordState.idx + 1);
-  $('#flipBtn').hidden = false;
-  $('#nextBtn').hidden = true;
-  $('#finishPack').hidden = true;
-}
-
-$('#openPack').addEventListener('click', async () => {
-  const btn = $('#openPack');
-  btn.disabled = true; btn.hidden = true;
-  let r;
-  try { r = await api('/api/words/draw', { method: 'POST' }); }
-  catch (e) { toast(e.message, true); btn.disabled = false; btn.hidden = false; return; }
-
-  wordState.pack = { day: r.day, pack_no: r.pack_no, words: r.words };
-  wordState.idx = 0;
-  setActivePack(r.day, r.pack_no);
-  wordState.data = r.state;
-  syncWordScore(r.state);
-
-  const pack = $('#pack');
-  pack.classList.add('is-tearing');
-  $('#packHint').textContent = '撕开封条…';
-  await new Promise((res) => setTimeout(res, 520));
-  pack.classList.remove('is-tearing');
-  pack.classList.add('is-open');
-  pack.style.display = 'none';
-
-  $('#packActions').hidden = false;
-  renderCurrentCard();
-  $('#packHint').textContent = `抽到 ${r.words.length} 个词，抽卡 +${r.gained} 分`;
-  toast(`抽卡成功 +${r.gained} 积分`);
-});
-
-$('#flipBtn').addEventListener('click', () => {
-  const card = $('#currentCard');
-  if (!card) return;
-  card.classList.add('is-open');
-  $('#flipBtn').hidden = true;
-  const last = wordState.idx >= wordState.pack.words.length - 1;
-  if (last) $('#finishPack').hidden = false;
-  else $('#nextBtn').hidden = false;
-});
-
-$('#nextBtn').addEventListener('click', () => {
-  wordState.idx++;
-  renderCurrentCard();
-});
-
-$('#finishPack').addEventListener('click', () => {
-  $('#packActions').hidden = true;
-  $('#packDone').hidden = false;
-});
-
-$('#toBook').addEventListener('click', () => { location.hash = '#/wordbook'; });
-$('#toStudyNow').addEventListener('click', () => { location.hash = '#/wordstudy'; });
+$('#startPack').addEventListener('click', () => { location.href = '/wordpack/'; });
+$('#goWords').addEventListener('click', () => { location.href = '/wordpack/'; });
 
 /* ---------- 收藏夹 ---------- */
 async function loadCollection() {
