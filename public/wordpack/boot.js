@@ -48,6 +48,7 @@ function showWordRankUp(info, done) {
   document.body.appendChild(wrap);
   const close = () => { wrap.remove(); done(); };
   wrap.querySelector('[data-ok]').addEventListener('click', close, { once: true });
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
 }
 
 function launch(pack) {
