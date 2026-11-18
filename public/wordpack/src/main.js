@@ -1119,21 +1119,20 @@ function buildCardMarkup(cardDef, { foilVariant = null, showNew = false } = {}) 
 
   if (cardDef.wordCard) {
     const w = cardDef.word || {};
+    const ph = cardDef.phonetic || w.phonetic || '';
     return (
       edges +
       back +
       `<div class="card-face word-card-face">` +
-      `<i class="card-inner-bevel"></i>` +
-      `<i class="foil-holo"></i>` +
-      `<i class="foil-glare"></i>` +
+      `<div class="word-rarity">${escHtml(cardDef.rarityLabel || '')} · ${escHtml(cardDef.serial)}</div>` +
       `<div class="word-plaque">` +
-      `<div class="word-serial">WORD ${escHtml(cardDef.serial)}</div>` +
       `<div class="word-main${cardDef.name.length > 10 ? ' is-long' : ''}">${escHtml(cardDef.name)}</div>` +
+      (ph ? `<div class="word-phonetic">${escHtml(ph)}</div>` : '') +
       `<div class="word-sub"><span class="word-pos">${escHtml(cardDef.tag)}</span><span class="word-zh">${escHtml(w.zh || cardDef.trait)}</span></div>` +
       (w.phrase ? `<div class="word-phrase">${escHtml(w.phrase)}${w.phraseZh ? ' · ' + escHtml(w.phraseZh) : ''}</div>` : '') +
       (w.ex ? `<p class="word-ex">${escHtml(w.ex)}</p>` : '') +
       `</div>` +
-      `<i class="foil-clearcoat"></i>` +
+      `<i class="card-inner-bevel"></i>` +
       `</div>`
     );
   }
@@ -2391,11 +2390,15 @@ function tick(nowMs) {
     c.el.style.zIndex = String(zoomedCard === c ? 20 : c.elevated ? 10 : c.phase === 'orbit' || isPortraitLayout ? c.depthRank : cards.length - c.idx);
 
     if (c.phase === 'fanned' && c.frontShown) {
-      const nx = clamp(tiltRy / 24, -1, 1);
-      const ny = clamp(rx / 24, -1, 1);
-      c.faceEl.style.setProperty('--px', (50 + nx * 50).toFixed(1));
-      c.faceEl.style.setProperty('--py', (50 - ny * 50).toFixed(1));
-      c.faceEl.style.setProperty('--hyp', Math.min(1, Math.hypot(nx, ny)).toFixed(3));
+      if (c.def.wordCard) {
+        if (!c.el.classList.contains('is-static')) c.el.classList.add('is-static');
+      } else {
+        const nx = clamp(tiltRy / 24, -1, 1);
+        const ny = clamp(rx / 24, -1, 1);
+        c.faceEl.style.setProperty('--px', (50 + nx * 50).toFixed(1));
+        c.faceEl.style.setProperty('--py', (50 - ny * 50).toFixed(1));
+        c.faceEl.style.setProperty('--hyp', Math.min(1, Math.hypot(nx, ny)).toFixed(3));
+      }
     }
   }
 

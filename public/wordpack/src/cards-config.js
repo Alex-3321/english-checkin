@@ -363,6 +363,7 @@ export const WORD_CARD_POOL = WORD_PACK && Array.isArray(WORD_PACK.words)
         name: w.w,
         tag: w.pos || '',
         trait: w.zh || '',
+        phonetic: w.phonetic || '',
         serial: `${String(i + 1).padStart(2, '0')}/05`,
         rarity: RARITY_LADDER[i] || 'rare',
         rarityMark: '◆',
