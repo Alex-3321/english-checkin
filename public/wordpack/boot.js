@@ -21,6 +21,8 @@ function setLoading(on) {
   startBtn.textContent = on ? '准备中…' : '开始抽卡';
 }
 
+const FORCE_FRESH = new URLSearchParams(location.search).has('fresh');
+
 function readSaved() {
   try {
     const v = JSON.parse(sessionStorage.getItem(KEY) || 'null');
@@ -63,6 +65,7 @@ async function fetchState() {
 
 async function init() {
   backBtn.addEventListener('click', () => { location.href = '/#/words'; });
+  if (FORCE_FRESH) { try { sessionStorage.removeItem(KEY); } catch (e) {} }
 
   let state;
   try { state = await fetchState(); }
@@ -71,7 +74,15 @@ async function init() {
     return;
   }
 
-  const saved = readSaved();
+  let saved = readSaved();
+  if (saved && saved.day === state.day) {
+    const ids = new Set((state.words || []).map((w) => w.id));
+    const stillThere = saved.words.every((w) => ids.has(w.id));
+    if (!stillThere) {
+      try { sessionStorage.removeItem(KEY); } catch (e) {}
+      saved = null;
+    }
+  }
   if (saved && saved.day === state.day) {
     titleEl.textContent = `正在恢复第 ${saved.pack_no} 包`;
     subEl.textContent = `还剩 ${saved.words.length} 张卡没看`;
