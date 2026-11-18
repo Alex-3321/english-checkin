@@ -453,7 +453,7 @@ function quarterScore(uid) {
 }
 
 /* ================= 沉浸阅读 ================= */
-const READ = { perMinute: 1, perArticleCap: 6, dailyCap: 12, refreshLimit: 3, generateLimit: 10 };
+const READ = { perMinute: 1, perArticleCap: 6, dailyCap: 12, dailyArticles: 10 };
 const DAY_MS = 864e5;
 
 function readQuota(uid, day) {
@@ -498,13 +498,66 @@ function readProgress(uid, day, article) {
     article_cap: READ.perArticleCap,
     article_seconds: article ? article.read_seconds : 0,
     generated: q.generated,
-    generate_limit: READ.generateLimit,
+    generate_limit: READ.dailyArticles,
     refreshed: q.refreshed,
-    refresh_limit: READ.refreshLimit,
+    refresh_limit: READ.dailyArticles,
   };
 }
 
-/* 取某天第 seq 篇：按用户+日期轮换文章库 */
+function seedRand(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* 为某个用户当天挑 10 篇：优先从未出现过的文章里选，池子不够时用最久未用的补 */
+function pickDailySet(uid, day, n) {
+  const used = new Set(db.prepare('SELECT article_id FROM read_served WHERE user_id=?').all(uid).map((r) => r.article_id));
+  const all = readingLib.ARTICLES.map((a) => a.id);
+  const unseen = all.filter((id) => !used.has(id));
+  const rand = seedRand(Number(String(uid).replace(/\D/g, '')) * 7919 + Number(String(day).replace(/\D/g, '')));
+  const shuffle = (arr) => {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  };
+  let picks = shuffle(unseen).slice(0, n);
+  if (picks.length < n) {
+    const stat = new Map(db.prepare('SELECT article_id, COUNT(*) c, MAX(day) d FROM read_served WHERE user_id=? GROUP BY article_id').all(uid).map((r) => [r.article_id, r]));
+    const rest = all.filter((id) => !picks.includes(id)).sort((x, y) => {
+      const A = stat.get(x) || { c: 0, d: '' }, B = stat.get(y) || { c: 0, d: '' };
+      return A.c - B.c || String(A.d).localeCompare(String(B.d)) || x - y;
+    });
+    picks = picks.concat(rest.slice(0, n - picks.length));
+  }
+  return picks;
+}
+
+/* 确保当天 10 个位置都排好 */
+function ensureDaySet(uid, day) {
+  const rows = db.prepare('SELECT seq, article_id FROM read_served WHERE user_id=? AND day=?').all(uid, day);
+  const have = new Map(rows.map((r) => [r.seq, r.article_id]));
+  const missing = [];
+  for (let s = 1; s <= READ.dailyArticles; s++) if (!have.has(s)) missing.push(s);
+  if (!missing.length) return;
+  const usedToday = new Set(rows.map((r) => r.article_id));
+  const picks = pickDailySet(uid, day, READ.dailyArticles).filter((id) => !usedToday.has(id));
+  for (const seq of missing) {
+    const id = picks.shift();
+    if (!id) break;
+    db.prepare('INSERT OR IGNORE INTO read_served (user_id,day,seq,article_id) VALUES (?,?,?,?)').run(uid, day, seq, id);
+  }
+}
+
+/* 取某天第 seq 篇 */
 function servedArticle(uid, day, seq, create) {
   let row = db.prepare('SELECT article_id FROM read_served WHERE user_id=? AND day=? AND seq=?').get(uid, day, seq);
   if (!row && create) {
@@ -533,8 +586,10 @@ function dayList(day, n) {
 
 function readHistory(uid, n) {
   const days = dayList(businessDay(), n || 3);
+  const quotas = new Map(db.prepare(`SELECT day, current_seq FROM read_quota WHERE user_id=? AND day IN (${days.map(() => '?').join(',')})`)
+    .all(uid, ...days).map((r) => [r.day, Number(r.current_seq) || 0]));
   const rows = db.prepare(`SELECT day, seq, article_id FROM read_served WHERE user_id=? AND day IN (${days.map(() => '?').join(',')}) ORDER BY day DESC, seq ASC`)
-    .all(uid, ...days);
+    .all(uid, ...days).filter((r) => r.seq <= (r.day === businessDay() ? (quotas.get(r.day) || READ.dailyArticles) : (quotas.get(r.day) || 0)));
   const byDay = new Map(days.map((d) => [d, []]));
   for (const r of rows) {
     const lib = readingLib.byId(r.article_id);
@@ -903,9 +958,9 @@ async function handleApi(req, res, url) {
   /* ================= 沉浸阅读 ================= */
   if (p === '/api/read/today' && method === 'GET') {
     const day = businessDay();
+    ensureDaySet(me.id, day);
     const q = readQuota(me.id, day);
-    const cur = Number(q.current_seq) || 0;
-    let seq = cur;
+    let seq = Number(q.current_seq) || 0;
     if (!seq) {
       seq = 1;
       db.prepare('UPDATE read_quota SET current_seq=? WHERE user_id=? AND day=?').run(seq, me.id, day);
@@ -922,9 +977,11 @@ async function handleApi(req, res, url) {
   if (p === '/api/read/refresh' && method === 'POST') {
     const day = businessDay();
     const q = readQuota(me.id, day);
-    if (q.refreshed >= READ.refreshLimit) return sendJSON(res, 429, { error: `每天最多换 ${READ.refreshLimit} 篇` });
+    ensureDaySet(me.id, day);
+    if (q.refreshed >= READ.dailyArticles) return sendJSON(res, 429, { error: `今天已经领完 ${READ.dailyArticles} 篇` });
     const next = (Number(q.current_seq) || 1) + 1;
-    const article = servedArticle(me.id, day, next, true);
+    if (next > READ.dailyArticles) return sendJSON(res, 429, { error: `今天已经领完 ${READ.dailyArticles} 篇` });
+    const article = servedArticle(me.id, day, next, false);
     if (!article) return sendJSON(res, 429, { error: '文章库暂时不可用' });
     db.prepare('UPDATE read_quota SET current_seq=?, refreshed=refreshed+1 WHERE user_id=? AND day=?').run(next, me.id, day);
     return sendJSON(res, 200, {

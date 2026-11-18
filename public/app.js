@@ -558,7 +558,8 @@ function updateReadProgress() {
   const p = readState.progress;
   if (!p) return;
   const mins = Math.floor(p.daily_seconds / 60);
-  $('#readTimer').textContent = `今日 ${mins} 分钟 · ${p.daily_points} / ${p.daily_cap} 分`;
+  const left = Math.max(0, (p.refresh_limit || 10) - (p.refreshed || 0));
+  $('#readTimer').textContent = `今日 ${mins} 分钟 · ${p.daily_points}/${p.daily_cap} 分 · 还可换 ${left} 篇`;
   const a = readState.article;
   if (a) {
     const ap = Math.min(p.article_cap, a.points || 0);
