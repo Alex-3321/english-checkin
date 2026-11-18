@@ -2386,3 +2386,12 @@ body.mobile-perf .foil-glare { opacity: .75; }
 .fallback-card h3{font-family:Georgia,serif;font-size:18px;margin:2px 0 4px;word-break:break-word}
 .fallback-card .word-zh{font-size:12.5px}
 .fallback-card .word-ex{font-size:11.5px;color:#4a5a52;margin:6px 0 0}
+
+/* 返回按钮独立在左上，不再与音量/灯光挤在一起 */
+.pack-back{ z-index:60; }
+@media (max-width: 560px){
+  .pack-back{ top:10px; left:10px; padding:6px 10px; font-size:11px; }
+  .top-bar{ top:10px; }
+  .brand-stage-crest{ display:none; }
+  .utility-cluster{ margin-left:auto; }
+}
