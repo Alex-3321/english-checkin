@@ -2274,7 +2274,8 @@ body.word-mode #gestureHint{display:none}
 .ambient-dust{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5}
 
 /* ================= 移动端渲染优化（不隐藏任何内容） ================= */
-.stage, .pack, .card, .bottom-chrome { contain: layout paint style; }
+.stage, .bottom-chrome { contain: layout paint style; }
+/* 卡牌不能加 contain：会压平 preserve-3d，导致卡背/翻转不可见 */
 #binderModal, .binder-modal { content-visibility: auto; }
 
 body.mobile-perf .top-bar,
