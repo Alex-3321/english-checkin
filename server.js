@@ -167,6 +167,7 @@ db.exec(`
   if (!ucols.includes('current_token')) db.exec('ALTER TABLE users ADD COLUMN current_token TEXT');
   const qcols = db.prepare('PRAGMA table_info(read_quota)').all().map((c) => c.name);
   if (qcols.length && !qcols.includes('current_seq')) db.exec('ALTER TABLE read_quota ADD COLUMN current_seq INTEGER NOT NULL DEFAULT 0');
+  if (qcols.length && !qcols.includes('current_batch')) db.exec('ALTER TABLE read_quota ADD COLUMN current_batch INTEGER NOT NULL DEFAULT 0');
 
   if (!ucols.includes('allow_multi_device')) db.exec('ALTER TABLE users ADD COLUMN allow_multi_device INTEGER NOT NULL DEFAULT 0');
 
@@ -453,7 +454,8 @@ function quarterScore(uid) {
 }
 
 /* ================= 沉浸阅读 ================= */
-const READ = { perMinute: 1, perArticleCap: 6, dailyCap: 12, dailyArticles: 10 };
+const READ = { perMinute: 1, perArticleCap: 6, dailyCap: 12, batchSize: 10 };
+const BATCH_COUNT = () => Math.ceil(readingLib.ARTICLES.length / READ.batchSize);
 const DAY_MS = 864e5;
 
 function readQuota(uid, day) {
@@ -542,19 +544,69 @@ function pickDailySet(uid, day, n) {
 }
 
 /* 确保当天 10 个位置都排好 */
-function ensureDaySet(uid, day) {
+function ensureBatch(uid, day, batch) {
+  const from = (batch - 1) * READ.batchSize + 1;
+  const to = batch * READ.batchSize;
   const rows = db.prepare('SELECT seq, article_id FROM read_served WHERE user_id=? AND day=?').all(uid, day);
   const have = new Map(rows.map((r) => [r.seq, r.article_id]));
   const missing = [];
-  for (let s = 1; s <= READ.dailyArticles; s++) if (!have.has(s)) missing.push(s);
+  for (let s = from; s <= to; s++) if (!have.has(s)) missing.push(s);
   if (!missing.length) return;
   const usedToday = new Set(rows.map((r) => r.article_id));
-  const picks = pickDailySet(uid, day, READ.dailyArticles).filter((id) => !usedToday.has(id));
+  const usedAll = new Set(db.prepare('SELECT article_id FROM read_served WHERE user_id=?').all(uid).map((r) => r.article_id));
+  const need = missing.length + usedToday.size;
+  const picks = pickDailySet(uid, day, Math.max(need, READ.batchSize)).filter((id) => !usedToday.has(id));
   for (const seq of missing) {
     const id = picks.shift();
     if (!id) break;
     db.prepare('INSERT OR IGNORE INTO read_served (user_id,day,seq,article_id) VALUES (?,?,?,?)').run(uid, day, seq, id);
   }
+}
+
+function batchOf(seq) { return Math.ceil(seq / READ.batchSize); }
+
+function listItem(row) {
+  const lib = readingLib.byId(row.article_id);
+  if (!lib) return null;
+  const read = db.prepare('SELECT seconds,points FROM article_reads WHERE user_id=? AND article_id=?').get(row.user_id || 0, lib.id) || { seconds: 0, points: 0 };
+  return { id: lib.id, seq: row.seq, title_cn: lib.title_cn, title_en: lib.title_en, level: lib.level, words: lib.words || 0, read_seconds: read.seconds, points: read.points };
+}
+
+function readListPayload(uid, day) {
+  const q = readQuota(uid, day);
+  const curBatch = Number(q.current_batch) || 1;
+  const batches = [];
+  for (let b = 1; b <= curBatch; b++) {
+    const rows = db.prepare(`SELECT seq, article_id FROM read_served WHERE user_id=? AND day=? AND seq BETWEEN ? AND ? ORDER BY seq`)
+      .all(uid, day, (b - 1) * READ.batchSize + 1, b * READ.batchSize);
+    batches.push({
+      batch: b,
+      items: rows.map((r) => {
+        const lib = readingLib.byId(r.article_id);
+        if (!lib) return null;
+        const read = db.prepare('SELECT seconds,points FROM article_reads WHERE user_id=? AND article_id=?').get(uid, lib.id) || { seconds: 0, points: 0 };
+        return { id: lib.id, seq: r.seq, title_cn: lib.title_cn, title_en: lib.title_en, level: lib.level, words: lib.words || 0, read_seconds: read.seconds, points: read.points };
+      }).filter(Boolean),
+    });
+  }
+  const daily = readDaily(uid, day);
+  return {
+    day,
+    batches,
+    current_batch: curBatch,
+    batch_count: BATCH_COUNT(),
+    remaining_refresh: Math.max(0, BATCH_COUNT() - curBatch),
+    library_size: readingLib.ARTICLES.length,
+    progress: {
+      day,
+      daily_seconds: daily.seconds,
+      daily_points: daily.points,
+      daily_cap: READ.dailyCap,
+      article_cap: READ.perArticleCap,
+      refreshed: Math.max(0, curBatch - 1),
+      refresh_limit: BATCH_COUNT() - 1,
+    },
+  };
 }
 
 /* 取某天第 seq 篇 */
@@ -956,39 +1008,24 @@ async function handleApi(req, res, url) {
 
 
   /* ================= 沉浸阅读 ================= */
-  if (p === '/api/read/today' && method === 'GET') {
+  if ((p === '/api/read/today' || p === '/api/read/list') && method === 'GET') {
     const day = businessDay();
-    ensureDaySet(me.id, day);
     const q = readQuota(me.id, day);
-    let seq = Number(q.current_seq) || 0;
-    if (!seq) {
-      seq = 1;
-      db.prepare('UPDATE read_quota SET current_seq=? WHERE user_id=? AND day=?').run(seq, me.id, day);
-    }
-    const article = servedArticle(me.id, day, seq, true);
-    return sendJSON(res, 200, {
-      article,
-      progress: readProgress(me.id, day, article),
-      history: readHistory(me.id, 3),
-      library_size: readingLib.ARTICLES.length,
-    });
+    const batch = Number(q.current_batch) || 1;
+    ensureBatch(me.id, day, batch);
+    db.prepare('UPDATE read_quota SET current_batch=? WHERE user_id=? AND day=?').run(batch, me.id, day);
+    return sendJSON(res, 200, readListPayload(me.id, day));
   }
 
   if (p === '/api/read/refresh' && method === 'POST') {
     const day = businessDay();
     const q = readQuota(me.id, day);
-    ensureDaySet(me.id, day);
-    if (q.refreshed >= READ.dailyArticles) return sendJSON(res, 429, { error: `今天已经领完 ${READ.dailyArticles} 篇` });
-    const next = (Number(q.current_seq) || 1) + 1;
-    if (next > READ.dailyArticles) return sendJSON(res, 429, { error: `今天已经领完 ${READ.dailyArticles} 篇` });
-    const article = servedArticle(me.id, day, next, false);
-    if (!article) return sendJSON(res, 429, { error: '文章库暂时不可用' });
-    db.prepare('UPDATE read_quota SET current_seq=?, refreshed=refreshed+1 WHERE user_id=? AND day=?').run(next, me.id, day);
-    return sendJSON(res, 200, {
-      article,
-      progress: readProgress(me.id, day, article),
-      history: readHistory(me.id, 3),
-    });
+    const cur = Number(q.current_batch) || 1;
+    if (cur >= BATCH_COUNT()) return sendJSON(res, 429, { error: '今天的文章已经全部领完' });
+    const next = cur + 1;
+    ensureBatch(me.id, day, next);
+    db.prepare('UPDATE read_quota SET current_batch=?, refreshed=refreshed+1 WHERE user_id=? AND day=?').run(next, me.id, day);
+    return sendJSON(res, 200, readListPayload(me.id, day));
   }
 
   if (p === '/api/read/report' && method === 'POST') {
@@ -1009,14 +1046,35 @@ async function handleApi(req, res, url) {
     const result = add > 0 ? settleReading(me.id, day, aid, add) : { gain: 0, seconds: daily.seconds, points: daily.points };
     db.prepare('UPDATE read_daily SET last_at=? WHERE user_id=? AND day=?').run(nowCN(), me.id, day);
     const article = servedArticle(me.id, day, Number(readQuota(me.id, day).current_seq) || 1, false);
-    return sendJSON(res, 200, { ...result, progress: readProgress(me.id, day, article), article_points: article ? article.points : 0 });
+    const dailyNow = readDaily(me.id, day);
+    return sendJSON(res, 200, {
+      ...result,
+      article_points: article ? article.points : 0,
+      progress: {
+        day,
+        daily_seconds: dailyNow.seconds,
+        daily_points: dailyNow.points,
+        daily_cap: READ.dailyCap,
+        article_cap: READ.perArticleCap,
+      },
+    });
   }
 
   if (p === '/api/read/status' && method === 'GET') {
     const day = businessDay();
     const q = readQuota(me.id, day);
-    const article = q.current_seq ? servedArticle(me.id, day, Number(q.current_seq), false) : null;
-    return sendJSON(res, 200, { progress: readProgress(me.id, day, article) });
+    const daily = readDaily(me.id, day);
+    return sendJSON(res, 200, {
+      progress: {
+        day,
+        daily_seconds: daily.seconds,
+        daily_points: daily.points,
+        daily_cap: READ.dailyCap,
+        article_cap: READ.perArticleCap,
+        refreshed: Math.max(0, (Number(q.current_batch) || 1) - 1),
+        refresh_limit: BATCH_COUNT() - 1,
+      },
+    });
   }
 
   const mReadArticle = /^\/api\/read\/article\/(\d+)$/.exec(p);

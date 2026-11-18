@@ -895,3 +895,18 @@ body > * { position: relative; z-index: 1; }
 .read-stat{margin:8px 0 0;font-size:12px;color:var(--faint);letter-spacing:.02em}
 .read-loading{font-family:-apple-system,"PingFang SC",sans-serif;font-size:13.5px;color:var(--faint);padding:40px 0}
 .read-intro{margin:10px 0 0;font-size:13px;color:var(--faint);letter-spacing:.02em}
+
+/* ---------- 阅读列表 ---------- */
+.read-list{display:flex;flex-direction:column;gap:18px;max-width:820px}
+.read-batch-label{display:flex;align-items:center;gap:10px;margin:0 0 2px;font-size:11px;letter-spacing:.18em;color:var(--gold);text-transform:uppercase}
+.read-batch-label::after{content:'';flex:1;height:1px;background:var(--line)}
+.read-cards{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.read-card{display:flex;flex-direction:column;gap:4px;text-align:left;background:var(--paper-3);
+  border:1px solid var(--line);padding:14px 14px 12px;cursor:pointer;font:inherit;transition:border-color .15s ease,transform .15s ease}
+.read-card:hover{border-color:var(--line-strong);transform:translateY(-1px)}
+.read-card .rc-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.read-card .rc-cn{font-size:15px;font-weight:700;color:var(--ink)}
+.read-card .rc-en{font-size:12px;color:var(--faint);letter-spacing:.02em}
+.read-card .rc-meta{display:flex;gap:10px;font-size:11px;color:var(--faint);margin-top:6px}
+.read-card .rc-done{font-size:10.5px;color:var(--gold);border:1px solid rgba(185,146,63,.45);padding:1px 6px}
+@media (max-width:640px){ .read-cards{grid-template-columns:1fr} }

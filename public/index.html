@@ -251,32 +251,46 @@
     <div class="read-head">
       <div>
         <p class="read-kicker">DAILY READING · 每日精读</p>
-        <h2 class="read-title" id="readTitleCn">—</h2>
-        <p class="read-subtitle" id="readTitleEn">—</p>
-        <p class="read-intro" id="readIntro" hidden></p>
+        <h2 class="read-title" id="readListTitle">今日阅读</h2>
+        <p class="read-subtitle" id="readListSub">每天 10 篇，任选一篇开始</p>
       </div>
       <div class="read-chips">
-        <span class="read-chip" id="readLevel">—</span>
-        <span class="read-chip is-gold" id="readTimer">今日 0 / 12 分</span>
+        <span class="read-chip is-gold" id="readTimer">今日 0 分钟 · 0/12 分</span>
       </div>
     </div>
 
     <div class="read-toolbar">
-      <div class="seg" id="transMode">
-        <button type="button" data-tm="off" class="is-on">无翻译</button>
-        <button type="button" data-tm="sentence">逐句</button>
-        <button type="button" data-tm="para">整段</button>
-      </div>
+      <button type="button" class="btn btn-line" id="readBack" hidden>← 返回列表</button>
       <div class="read-actions">
-        <button type="button" class="btn btn-line" id="refreshArticle">换一篇</button>
+        <button type="button" class="btn btn-line" id="refreshList">换一批</button>
         <button type="button" class="btn btn-line" id="readHistoryBtn">往期</button>
       </div>
     </div>
 
-    <div class="read-archive-hint" id="readArchiveHint" hidden></div>
-    <article class="read-article" id="readBody"></article>
-    <div class="read-summary" id="readSummary" hidden></div>
-    <p class="read-source" id="readSource"></p>
+    <div id="readList" class="read-list"></div>
+
+    <div id="readDetail" hidden>
+      <div class="read-head">
+        <div>
+          <h2 class="read-title" id="readTitleCn">—</h2>
+          <p class="read-subtitle" id="readTitleEn">—</p>
+          <p class="read-intro" id="readIntro" hidden></p>
+        </div>
+        <div class="read-chips"><span class="read-chip" id="readLevel">—</span></div>
+      </div>
+      <div class="read-toolbar">
+        <div class="seg" id="transMode">
+          <button type="button" data-tm="off" class="is-on">无翻译</button>
+          <button type="button" data-tm="sentence">逐句</button>
+          <button type="button" data-tm="para">整段</button>
+        </div>
+      </div>
+      <div class="read-archive-hint" id="readArchiveHint" hidden></div>
+      <article class="read-article" id="readBody"></article>
+      <div class="read-summary" id="readSummary" hidden></div>
+      <p class="read-source" id="readSource"></p>
+    </div>
+
     <div class="read-history" id="readHistory" hidden></div>
   </section>
 

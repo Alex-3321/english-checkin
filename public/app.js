@@ -526,7 +526,7 @@ $('#announceOk').addEventListener('click', () => {
 
 
 /* ================= 沉浸阅读 ================= */
-const readState = { article: null, progress: null, mode: 'off', archived: false, timer: null, history: [] };
+const readState = { list: null, article: null, mode: 'off', archived: false, timer: null, articleId: null };
 
 function stopReadTimer() {
   if (readState.timer) { clearInterval(readState.timer); readState.timer = null; }
@@ -548,35 +548,27 @@ async function readTick() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ article_id: readState.article.id, seconds: 10 }),
     });
-    readState.progress = r.progress;
+    readState.progress = { ...(readState.progress || {}), ...r.progress };
     readState.article.points = r.article_points;
+    readState.article.read_seconds = (readState.article.read_seconds || 0) + 10;
     updateReadProgress();
-  } catch (e) { /* 静默：网络抖动不影响阅读 */ }
+  } catch (e) { /* 静默 */ }
 }
 
 function updateReadProgress() {
   const p = readState.progress;
   if (!p) return;
-  const mins = Math.floor(p.daily_seconds / 60);
-  const left = Math.max(0, (p.refresh_limit || 10) - (p.refreshed || 0));
-  $('#readTimer').textContent = `今日 ${mins} 分钟 · ${p.daily_points}/${p.daily_cap} 分 · 还可换 ${left} 篇`;
-  const a = readState.article;
-  if (a) {
-    const ap = Math.min(p.article_cap, a.points || 0);
-    $('#readSource').textContent = `本篇已读 ${Math.floor((a.read_seconds || 0) / 60)} 分钟 · 本篇 ${ap} / ${p.article_cap} 分　|　出处：${a.source || '内置文章库'}`;
-  }
+  const mins = Math.floor((p.daily_seconds || 0) / 60);
+  $('#readTimer').textContent = `今日 ${mins} 分钟 · ${p.daily_points || 0}/${p.daily_cap || 12} 分`;
 }
 
 function readParagraphHTML(par, mode) {
-  if (mode === 'off') {
-    return `<p class="rp">${par.en.map(esc).join(' ')}</p>`;
-  }
+  if (mode === 'off') return `<p class="rp">${par.en.map(esc).join(' ')}</p>`;
   if (mode === 'sentence') {
     const n = Math.max(par.en.length, par.zh.length);
     let out = '<div class="rp-sent">';
     for (let i = 0; i < n; i++) {
-      out += `<p class="rps"><span class="rps-en">${esc(par.en[i] || '')}</span>`
-           + `<span class="rps-zh">${esc(par.zh[i] || '')}</span></p>`;
+      out += `<p class="rps"><span class="rps-en">${esc(par.en[i] || '')}</span><span class="rps-zh">${esc(par.zh[i] || '')}</span></p>`;
     }
     return out + '</div>';
   }
@@ -586,81 +578,100 @@ function readParagraphHTML(par, mode) {
 
 function renderArticle() {
   const a = readState.article;
-  const body = $('#readBody');
-  if (!a) {
-    body.innerHTML = '<p class="empty">今天暂时没有文章，稍后再来。</p>';
-    $('#readTitleCn').textContent = '—';
-    $('#readTitleEn').textContent = '—';
-    $('#readSummary').hidden = true;
-    return;
-  }
+  if (!a) return;
   $('#readTitleCn').textContent = a.title_cn;
   $('#readTitleEn').textContent = a.title_en;
-  $('#readLevel').textContent = a.level || '四级';
-  body.innerHTML = a.paragraphs.map((par) => readParagraphHTML(par, readState.mode)).join('');
-
+  $('#readLevel').textContent = `${a.level || '初级'} · ${a.words || ''} 词`;
+  const intro = $('#readIntro');
+  intro.textContent = a.intro_cn || '';
+  intro.hidden = !a.intro_cn;
+  $('#readBody').innerHTML = a.paragraphs.map((par) => readParagraphHTML(par, readState.mode)).join('');
   const sum = $('#readSummary');
   if (a.summary_cn) {
     sum.hidden = false;
     sum.innerHTML = `<p class="rs-kicker">SUMMARY · 主旨</p><p class="rs-text">${esc(a.summary_cn)}</p>`;
   } else sum.hidden = true;
-
-  $('#readSource').textContent = `出处：${a.source || 'Aesop\'s Fables'}　·　${a.license || 'Public Domain（公版）'}`;
-  const intro = $('#readIntro');
-  if (intro) { intro.textContent = a.intro_cn || ''; intro.hidden = !a.intro_cn; }
-  updateReadProgress();
-
+  $('#readSource').textContent = `出处：${a.source || "Aesop's Fables"}　·　${a.license || 'Public Domain（公版）'}`;
   const hint = $('#readArchiveHint');
-  if (readState.archived) {
-    hint.hidden = false;
-    hint.textContent = '归档阅读 · 往期文章不计分';
-  } else hint.hidden = true;
+  hint.hidden = !readState.archived;
+  if (readState.archived) hint.textContent = '往期文章 · 不计分';
+  updateReadProgress();
 }
 
-function renderReadHistory(days) {
-  readState.history = days || [];
-  const box = $('#readHistory');
-  const label = (d) => {
-    const today = new Date().toISOString().slice(0, 10);
-    if (d === days[0].day) return '今天';
-    return d === days[1].day ? '昨天' : '前天';
-  };
-  box.innerHTML = `<p class="rh-kicker">RECENT · 近三天</p>` + days.map((g, i) => `
-    <div class="rh-day">
-      <p class="rh-day-label">${['今天', '昨天', '前天'][i]} · ${g.day}</p>
-      ${g.items.length ? g.items.map((it) => `
-        <button type="button" class="rh-item" data-article="${it.id}">
-          <span class="rh-title">${esc(it.title_cn)}</span>
-          <span class="rh-en">${esc(it.title_en)}</span>
-        </button>`).join('') : '<p class="rh-empty">这天没有阅读记录</p>'}
+function showReadList() {
+  $('#readList').hidden = false;
+  $('#readDetail').hidden = true;
+  $('#readBack').hidden = true;
+  $('#refreshList').hidden = false;
+  stopReadTimer();
+}
+
+function renderReadList(d) {
+  readState.list = d;
+  readState.progress = { ...(readState.progress || {}), ...d.progress };
+  const box = $('#readList');
+  const total = d.batches.reduce((n, b) => n + b.items.length, 0);
+  $('#readListTitle').textContent = '今日阅读';
+  $('#readListSub').textContent = `共 ${total} 篇 · 每篇 ${d.progress.article_cap} 分封顶 · 今日上限 ${d.progress.daily_cap} 分`;
+  box.innerHTML = d.batches.map((b) => `
+    <div class="read-batch">
+      <p class="read-batch-label">第 ${b.batch} 批 · ${b.items.length} 篇</p>
+      <div class="read-cards">
+        ${b.items.map((it) => `
+          <button type="button" class="read-card" data-read="${it.id}">
+            <span class="rc-top"><span class="rc-cn">${esc(it.title_cn)}</span>${it.points ? `<span class="rc-done">${it.points} 分</span>` : ''}</span>
+            <span class="rc-en">${esc(it.title_en)}</span>
+            <span class="rc-meta"><span>${it.words} 词</span><span>${esc(it.level || '')}</span><span>${it.read_seconds ? Math.floor(it.read_seconds / 60) + ' 分钟' : '未读'}</span></span>
+          </button>`).join('')}
+      </div>
     </div>`).join('');
-  box.querySelectorAll('[data-article]').forEach((el) => el.addEventListener('click', async () => {
-    try {
-      const r = await api(`/api/read/article/${el.dataset.article}`);
-      readState.article = r.article;
-      readState.archived = true;
-      stopReadTimer();
-      renderArticle();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch (e) { toast(e.message, true); }
-  }));
+  box.querySelectorAll('[data-read]').forEach((el) => el.addEventListener('click', () => openReadArticle(Number(el.dataset.read))));
+  const left = d.remaining_refresh;
+  $('#refreshList').textContent = left > 0 ? `换一批（还可 ${left} 次）` : '已领完全部文章';
+  $('#refreshList').disabled = left <= 0;
+  showReadList();
+  updateReadProgress();
+}
+
+async function openReadArticle(id) {
+  try {
+    const r = await api(`/api/read/article/${id}`);
+    readState.article = r.article;
+    readState.archived = !!r.archived;
+    readState.articleId = id;
+    $('#readList').hidden = true;
+    $('#readDetail').hidden = false;
+    $('#readBack').hidden = false;
+    $('#refreshList').hidden = true;
+    renderArticle();
+    if (!readState.archived) startReadTimer();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (e) { toast(e.message, true); }
 }
 
 async function loadRead() {
-  $('#readBody').innerHTML = '<p class="read-loading">正在加载今天的文章…</p>';
-  $('#readTitleCn').textContent = 'Loading…';
-  $('#readTitleEn').textContent = 'Daily reading is being prepared';
-  $('#readSummary').hidden = true;
-  $('#readSource').textContent = '';
-  const d = await api('/api/read/today');
-  readState.article = d.article;
-  readState.progress = d.progress;
-  readState.archived = false;
-  renderArticle();
-  renderReadHistory(d.history);
-  startReadTimer();
+  const d = await api('/api/read/list');
+  renderReadList(d);
 }
 
+async function loadReadHistory() {
+  try {
+    const d = await api('/api/read/history');
+    const box = $('#readHistory');
+    box.innerHTML = `<p class="rh-kicker">RECENT · 近三天</p>` + d.days.map((g, i) => `
+      <div class="rh-day">
+        <p class="rh-day-label">${['今天', '昨天', '前天'][i]} · ${g.day}</p>
+        ${g.items.length ? g.items.map((it) => `
+          <button type="button" class="rh-item" data-history="${it.id}">
+            <span class="rh-title">${esc(it.title_cn)}</span>
+            <span class="rh-en">${esc(it.title_en)}</span>
+          </button>`).join('') : '<p class="rh-empty">这天没有阅读记录</p>'}
+      </div>`).join('');
+    box.querySelectorAll('[data-history]').forEach((el) => el.addEventListener('click', () => openReadArticle(Number(el.dataset.history))));
+  } catch (e) { toast(e.message, true); }
+}
+
+$('#readBack').addEventListener('click', () => { showReadList(); loadRead().catch(() => {}); });
 $('#transMode').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-tm]');
   if (!btn) return;
@@ -668,29 +679,20 @@ $('#transMode').addEventListener('click', (e) => {
   $('#transMode').querySelectorAll('[data-tm]').forEach((b) => b.classList.toggle('is-on', b === btn));
   renderArticle();
 });
-
-$('#refreshArticle').addEventListener('click', async () => {
-  const btn = $('#refreshArticle');
-  btn.disabled = true; btn.textContent = '生成中…';
+$('#refreshList').addEventListener('click', async () => {
+  const btn = $('#refreshList');
+  btn.disabled = true;
   try {
     const d = await api('/api/read/refresh', { method: 'POST' });
-    readState.article = d.article;
-    readState.progress = d.progress;
-    readState.archived = false;
-    renderArticle();
-    renderReadHistory(d.history);
-    toast('已换一篇');
+    renderReadList(d);
+    toast('已换一批');
   } catch (e) { toast(e.message, true); }
-  finally { btn.disabled = false; btn.textContent = '换一篇'; }
+  finally { btn.disabled = false; }
 });
-
-$('#readHistoryBtn').addEventListener('click', () => {
+$('#readHistoryBtn').addEventListener('click', async () => {
   const box = $('#readHistory');
   box.hidden = !box.hidden;
-});
-
-document.addEventListener('visibilitychange', () => {
-  /* 切走时暂停，切回继续（不做惩罚，只防止后台挂机） */
+  if (!box.hidden) await loadReadHistory();
 });
 
 /* ================= 排行榜 ================= */
@@ -754,7 +756,7 @@ async function loadMe() {
   loadMyAppeals().catch(() => {});
   api('/api/read/status').then((r) => {
     const p = r.progress;
-    $('#meReadStat').textContent = `今日阅读 ${Math.floor(p.daily_seconds / 60)} 分钟 · 获得 ${p.daily_points} 分（上限 ${p.daily_cap} 分）`;
+    $('#meReadStat').textContent = `今日阅读 ${Math.floor((p.daily_seconds || 0) / 60)} 分钟 · 获得 ${p.daily_points || 0} 分（上限 ${p.daily_cap} 分）`;
   }).catch(() => {});
 }
 
