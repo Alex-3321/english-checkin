@@ -1859,7 +1859,10 @@ const server = http.createServer(async (req, res) => {
     const f = safeJoin(PUBLIC_DIR, rel);
     if (!f) { res.writeHead(400); res.end('bad path'); return; }
     /* 抽卡页的引擎资源可缓存，避免每次进入都重新下载 300KB */
-    if (rel.startsWith('wordpack/src/') || rel.startsWith('wordpack/assets/')) {
+    if (rel.startsWith('wordpack/') && /\.(html|css|js|json)$/.test(rel)) {
+      return serveFile(res, f, 'no-store');
+    }
+    if (rel.startsWith('wordpack/assets/')) {
       return serveFile(res, f, 'public, max-age=3600');
     }
     return serveFile(res, f, 'no-cache');

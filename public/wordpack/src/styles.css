@@ -2208,7 +2208,7 @@ html[data-studio-light="day"] .pity-meter.pity-ready .console-val {
 
 .keep-pack{
   pointer-events:auto;
-  position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:45;
+  position:fixed;left:50%;bottom:92px;transform:translateX(-50%);z-index:80;
   padding:14px 34px;border:1px solid rgba(212,175,55,.65);cursor:pointer;
   background:linear-gradient(180deg,#D4AF37,#A9832A);color:#12100a;font-size:14px;letter-spacing:.16em;font-weight:700;
   box-shadow:0 10px 30px rgba(0,0,0,.45);
@@ -2223,7 +2223,7 @@ body.word-mode #shakeBtn,
 body.word-mode #flipAllBtn,
 body.word-mode #againBtn,
 body.word-mode #binderModal{display:none !important}
-body.word-mode .console-dock{justify-content:center}
+body.word-mode .console-dock{display:none !important}
 body.word-mode .console-actions{display:none}
 body.word-mode #gestureHint{display:none}
 
@@ -2263,9 +2263,9 @@ body.word-mode #gestureHint{display:none}
 
 
 .boot-secondary{
-  width:100%;margin-top:10px;padding:13px 0;cursor:pointer;
-  border:1px solid rgba(212,175,55,.5);background:rgba(212,175,55,.10);color:#EDE7D8;
-  font-size:13.5px;letter-spacing:.10em;
+  width:auto;margin:12px auto 0;padding:0;border:0;background:none;cursor:pointer;
+  color:rgba(237,231,216,.58);font-size:12px;letter-spacing:.04em;
+  text-decoration:underline;text-underline-offset:3px;display:block;
 }
-.boot-secondary:hover{background:rgba(212,175,55,.18)}
+.boot-secondary:hover{color:rgba(212,175,55,.95)}
 .boot-secondary[hidden]{display:none}

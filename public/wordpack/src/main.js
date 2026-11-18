@@ -1,9 +1,9 @@
-import { PACK_BRAND, PACK_THEMES, RARITY_META, MASCOT_CONFIG, CARD_POOL } from './cards-config.js';
+import { PACK_BRAND, PACK_THEMES, RARITY_META, MASCOT_CONFIG, CARD_POOL } from './cards-config.js?v=5';
 
 const WORD_PACK = (typeof window !== 'undefined' && window.__WORD_PACK__) || null;
 const WORD_MODE = !!(WORD_PACK && Array.isArray(WORD_PACK.words));
 const escHtml = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-import { createSoundController } from './sound.js';
+import { createSoundController } from './sound.js?v=5';
 
 const $ = (sel) => document.querySelector(sel);
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));

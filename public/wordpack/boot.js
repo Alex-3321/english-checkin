@@ -43,7 +43,7 @@ function launch(pack) {
   cover.style.display = 'none';
   startBtn.hidden = true;
 
-  import('./src/main.js').catch(() => {
+  import('./src/main.js?v=5').catch(() => {
     /* 只有真正加载失败才把遮罩放回来 */
     cover.hidden = false;
     cover.style.display = '';
@@ -96,7 +96,7 @@ async function init() {
   const contBtn = $('bootContinue');
   if (saved && saved.day === state.day) {
     contBtn.hidden = false;
-    contBtn.textContent = `继续上一包（第 ${saved.pack_no} 包，不扣次数）`;
+    contBtn.textContent = `继续看第 ${saved.pack_no} 包（不扣次数）`;
     contBtn.addEventListener('click', () => launch(saved), { once: true });
   }
   if (saved) { try { sessionStorage.removeItem(KEY); } catch (e) {} }

@@ -8,10 +8,10 @@
   <meta property="og:description" content="纯原生网页全息拆包交互实验：镀铝封口物理撕裂、实时合成声效、3D 角色渲染与 12 卡典藏图鉴。">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230d1511'/><path d='M16 4 19.2 12.8 28 16 19.2 19.2 16 28 12.8 19.2 4 16 12.8 12.8Z' fill='%2332ad62'/></svg>">
   <title>SimpleMkt · 典藏全息拆包互动台</title>
-  <link rel="stylesheet" href="src/styles.css">
-  <link rel="modulepreload" href="src/main.js">
-  <link rel="modulepreload" href="src/cards-config.js">
-  <link rel="modulepreload" href="src/sound.js">
+  <link rel="stylesheet" href="src/styles.css?v=5">
+  <link rel="modulepreload" href="src/main.js?v=5">
+  <link rel="modulepreload" href="src/cards-config.js?v=5">
+  <link rel="modulepreload" href="src/sound.js?v=5">
 </head>
 <body>
   <h1 class="sr-only">SimpleMkt 典藏全息拆包互动体验台</h1>
@@ -145,11 +145,11 @@
     <canvas class="confetti-canvas" id="confettiCanvas" aria-hidden="true"></canvas>
   </main>
 
+  <button class="keep-pack" id="keepPackBtn" type="button" hidden>收下这包</button>
+
   <!-- 底部手势轻提示与一体化精密控制台 -->
   <div class="bottom-chrome">
     <p class="gesture-hint" id="gestureHint">按住封口横向拖动撕开 · 可先摇包透视稀有度</p>
-
-    <button class="keep-pack" id="keepPackBtn" type="button" hidden>收下这包</button>
 
     <footer class="console-dock" id="controlConsole" aria-label="抽卡与图鉴控制台">
       <button class="console-item binder-trigger" id="binderBtn" type="button" aria-haspopup="dialog" aria-controls="binderModal">
@@ -217,6 +217,6 @@
   </div>
 
   <p class="sr-only" id="liveStatus" aria-live="polite"></p>
-  <script type="module" src="boot.js?v=4"></script>
+  <script type="module" src="boot.js?v=5"></script>
 </body>
 </html>
