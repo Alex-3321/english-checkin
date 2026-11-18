@@ -2352,3 +2352,25 @@ body.mobile-perf .foil-glare { opacity: .75; }
   font:inherit;font-size:14px;letter-spacing:.14em;font-weight:700;
 }
 .word-rankup .rankup-icon svg{filter:drop-shadow(0 6px 18px rgba(212,175,55,.35))}
+
+/* ================= 手机端：一次滑动/点击 → CSS 撕开 ================= */
+.mobile-fast .pack{ will-change: transform, opacity; }
+.mobile-fast .pack.mobile-tearing{ animation: mobilePackOut .6s .18s cubic-bezier(.2,.8,.2,1) forwards; }
+
+.seal-piece{
+  position:absolute;left:-2%;right:-2%;top:44%;height:12%;z-index:8;pointer-events:none;
+  background:linear-gradient(180deg,rgba(255,255,255,.55),rgba(212,175,55,.85) 30%,rgba(120,88,26,.9));
+  box-shadow:0 1px 0 rgba(255,255,255,.5) inset;
+}
+.mobile-fast .pack.mobile-tearing .seal-left{ animation: mobileSealLeft .55s cubic-bezier(.2,.8,.2,1) forwards; }
+.mobile-fast .pack.mobile-tearing .seal-right{ animation: mobileSealRight .55s cubic-bezier(.2,.8,.2,1) forwards; }
+
+@keyframes mobileSealLeft{
+  to{ transform: translate3d(-38%,-12%,0) rotate(-7deg); opacity:0; }
+}
+@keyframes mobileSealRight{
+  to{ transform: translate3d(38%,-12%,0) rotate(7deg); opacity:0; }
+}
+@keyframes mobilePackOut{
+  to{ transform: translate3d(0,18%,0) scale(.92); opacity:0; }
+}

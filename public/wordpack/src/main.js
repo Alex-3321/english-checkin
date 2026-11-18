@@ -3,6 +3,9 @@ import { PACK_BRAND, PACK_THEMES, RARITY_META, MASCOT_CONFIG, CARD_POOL } from '
 const MOBILE_PERF = typeof window !== 'undefined' &&
   window.matchMedia && window.matchMedia('(max-width: 720px), (pointer: coarse)').matches;
 if (typeof document !== 'undefined') document.body.classList.toggle('mobile-perf', MOBILE_PERF);
+const MOBILE_FAST = typeof window !== 'undefined' && window.matchMedia &&
+  window.matchMedia('(max-width: 720px), (pointer: coarse)').matches;
+if (typeof document !== 'undefined') document.body.classList.toggle('mobile-fast', MOBILE_FAST);
 const DPR_CAP = MOBILE_PERF ? 1.25 : (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches ? 1.5 : 2);
 
 const WORD_PACK = (typeof window !== 'undefined' && window.__WORD_PACK__) || null;
@@ -501,6 +504,7 @@ function applyVertexBend(vert, bendOffset) {
 }
 
 function generateTearLine() {
+  if (MOBILE_FAST) return;   /* 手机端不做 96 段锯齿，改用 CSS 撕开 */
   curlTightness = rand(0.7, 1.38);
   const slope = rand(-7.0, 7.0);
   const arch = rand(-2.8, 2.8);
@@ -888,7 +892,7 @@ function stageToScreen(x, y, z = 0) {
 
 function preloadConfettiPool(isGodPack = false) {
   confettiBits = [];
-  const count = isCoarsePointer ? 120 : isGodPack ? 260 : 210;
+  const count = MOBILE_FAST ? 28 : isCoarsePointer ? 120 : isGodPack ? 260 : 210;
   const colors = isGodPack
     ? ['#ffd454', '#fff4b8', '#ff66dc', '#5ce6ff', '#a288ff', '#ffffff']
     : [...RAINBOW_PALETTE, '#ffffff'];
@@ -1084,7 +1088,7 @@ function shakePackPeek() {
 }
 
 /* ---------- 双面卡牌构建、螺旋出包与悬念翻牌 ---------- */
-const ORBIT_DURATION = 1.22;
+const ORBIT_DURATION = MOBILE_FAST ? 0.55 : 1.22;
 const smoothStep = (a, b, x) => {
   const k = clamp((x - a) / (b - a), 0, 1);
   return k * k * (3 - 2 * k);
@@ -1685,7 +1689,7 @@ function enterFreshPack() {
   syncPackGodVisual();
   updateHud();
 
-  gestureHint.textContent = '按住封口横向拖动撕开 · 可先摇包透视稀有度';
+  gestureHint.textContent = MOBILE_FAST ? '点或划一下封条撕开' : '按住封口横向拖动撕开 · 可先摇包透视稀有度';
   gestureHint.classList.remove('hidden');
   shakeBtn.hidden = false;
   flipAllBtn.hidden = true;
@@ -1858,7 +1862,49 @@ flipAllBtn.addEventListener('click', (e) => {
   });
 });
 
+let mobileTearing = false;
+let mobileDownAt = null;
+
+function triggerMobileTear() {
+  if (mobileTearing) return;
+  mobileTearing = true;
+  if (stageState === 'enter') { clearTimeout(enterTimer); stageState = 'idle'; }
+  activateTearingFeedback();
+  for (const side of ['left', 'right']) {
+    const piece = document.createElement('i');
+    piece.className = `seal-piece seal-${side}`;
+    pack.appendChild(piece);
+  }
+  pack.classList.add('mobile-tearing');
+  document.body.classList.add('is-tearing');
+  sound.call('tear');
+  setTimeout(() => {
+    pack.classList.remove('mobile-tearing');
+    document.body.classList.remove('is-tearing');
+    pack.querySelectorAll('.seal-piece').forEach((el) => el.remove());
+    tearState.p.x = tearState.p.to = 1;
+    triggerPackBurst();
+    mobileTearing = false;
+  }, 560);
+}
+
 grabZone.addEventListener('pointerdown', (e) => {
+  if (MOBILE_FAST) {
+    if (stageState === 'enter') { clearTimeout(enterTimer); stageState = 'idle'; }
+    if (stageState !== 'idle' || mobileTearing) return;
+    e.preventDefault();
+    mobileDownAt = { x: e.clientX, y: e.clientY };
+    const up = (ev) => {
+      grabZone.removeEventListener('pointerup', up);
+      grabZone.removeEventListener('pointercancel', up);
+      if (mobileTearing) return;
+      const dx = ev.clientX - mobileDownAt.x, dy = ev.clientY - mobileDownAt.y;
+      if (Math.hypot(dx, dy) >= 10 || ev.type === 'pointerup') triggerMobileTear();
+    };
+    grabZone.addEventListener('pointerup', up);
+    grabZone.addEventListener('pointercancel', up);
+    return;
+  }
   openedByKeyboard = false;
   dismissShowcaseCard();
   if (e.button !== 0 || dragSession) return;
@@ -2559,6 +2605,7 @@ function startAmbientDust() {
   const loop = () => {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
+    if (document.body.classList.contains('is-tearing')) { requestAnimationFrame(loop); return; }
     for (const p of parts) {
       p.y += p.vy; p.x += p.vx;
       if (p.y < -0.05) { p.y = 1.05; p.x = Math.random(); }
