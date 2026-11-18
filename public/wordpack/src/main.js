@@ -505,7 +505,7 @@ function applyVertexBend(vert, bendOffset) {
 }
 
 function generateTearLine() {
-  if (MOBILE_FAST) return;   /* 手机端不做 96 段锯齿，改用 CSS 撕开 */
+  /* 手机端仍然生成顶点（后续几何函数依赖），只是不画 96 段锯齿 */
   curlTightness = rand(0.7, 1.38);
   const slope = rand(-7.0, 7.0);
   const arch = rand(-2.8, 2.8);
@@ -608,6 +608,7 @@ function measureStage() {
 }
 
 function updateTearClips(p) {
+  if (MOBILE_FAST) return;   /* 手机端不裁剪，卡包交给 CSS 动画退场 */
   const d = tearState.dir;
   const tipX = d > 0 ? p * 100 : 100 - p * 100;
   const tipY = tearYAt(tipX);
@@ -1885,10 +1886,15 @@ function triggerMobileTear() {
     document.body.classList.remove('is-tearing');
     pack.querySelectorAll('.seal-piece').forEach((el) => el.remove());
     tearState.p.x = tearState.p.to = 1;
-    try { triggerPackBurst(); } catch (err) { console.error('[mobile tear]', err); }
+    try {
+      triggerPackBurst();
+    } catch (err) {
+      console.error('[mobile tear]', err);
+      try { spawnPackCards(); } catch (e2) { console.error('[mobile tear spawn]', e2); }
+    }
     mobileTearing = false;
-    if (stageState !== 'open') {
-      try { triggerPackBurst(); } catch (err) { console.error('[mobile tear retry]', err); }
+    if (!cards.length) {
+      try { spawnPackCards(); } catch (err) { console.error('[mobile tear retry]', err); }
     }
   }, 560);
   } catch (err) {
