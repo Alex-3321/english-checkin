@@ -1106,7 +1106,15 @@ async function handleApi(req, res, url) {
         stage: Number(r.stage) || 0, learned: !!r.learned, spell_done: !!r.spell_awarded,
       };
     }).filter(Boolean);
-    return { day, draws: d.draws, draws_left: Math.max(0, WORD_LIMIT - d.draws), limit: WORD_LIMIT, points_today: d.points, words };
+    const unlimited = me.role === 'super_admin';
+    return {
+      day, draws: d.draws,
+      draws_left: unlimited ? 99 : Math.max(0, WORD_LIMIT - d.draws),
+      limit: unlimited ? 99 : WORD_LIMIT,
+      unlimited,
+      points_today: d.points,
+      words,
+    };
   }
 
   function wordOptions(word) {
@@ -1156,7 +1164,8 @@ async function handleApi(req, res, url) {
     const day = businessDay();
     const st = wordState(me.id, day);
     if (st.draws_left <= 0) return sendJSON(res, 429, { error: `每天最多抽 ${WORD_LIMIT} 次` });
-    const packNo = clampPack(st.draws + 1);
+    /* 超管用于测试：不限次数，包号循环 1→2→3 */
+    const packNo = st.unlimited ? ((st.draws % WORD_LIMIT) + 1) : clampPack(st.draws + 1);
     const owned = new Set(db.prepare('SELECT word_id FROM user_words WHERE user_id=?').all(me.id).map((r) => r.word_id));
     let pool = WORDS.filter((w) => !owned.has(w.id));
     if (pool.length < WORD_DRAW_SIZE) pool = WORDS.filter((w) => !st.words.some((x) => x.id === w.id));

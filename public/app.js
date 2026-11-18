@@ -551,8 +551,8 @@ function getActivePack() {
 function syncWordScore(d) {
   if (!d) return;
   const sc = $('#wordScore'); if (sc) sc.textContent = `今日 ${d.points_today} 分`;
-  const dr = $('#wordDraws'); if (dr) dr.textContent = d.draws_left > 0 ? `还可抽 ${d.draws_left} 次` : '今日已抽完';
-  const sp = $('#startPack'); if (sp) sp.disabled = d.draws_left <= 0;
+  const dr = $('#wordDraws'); if (dr) dr.textContent = d.unlimited ? '管理员 · 不限次数' : (d.draws_left > 0 ? `还可抽 ${d.draws_left} 次` : '今日已抽完');
+  const sp = $('#startPack'); if (sp) sp.disabled = !d.unlimited && d.draws_left <= 0;
 }
 
 async function loadWords() {
