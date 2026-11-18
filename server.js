@@ -464,10 +464,13 @@ function likeCount(id) {
 /* ---------------- 积分 ---------------- */
 const PTS = { checkin: 10, upload: 20 };
 function quarterScore(uid) {
+  const cutoff = seasonCutoff();
   const row = db.prepare(`
     SELECT COALESCE(SUM(points),0) s
-    FROM records WHERE user_id=? AND created_at>=? AND deleted_at IS NULL`).get(uid, seasonCutoff());
-  return row ? row.s : 0;
+    FROM records WHERE user_id=? AND created_at>=? AND deleted_at IS NULL`).get(uid, cutoff);
+  const read = db.prepare('SELECT COALESCE(SUM(points),0) s FROM read_daily WHERE user_id=? AND day>=?').get(uid, cutoff.slice(0, 10));
+  const word = db.prepare('SELECT COALESCE(SUM(points),0) s FROM word_daily WHERE user_id=? AND day>=?').get(uid, cutoff.slice(0, 10));
+  return (row ? row.s : 0) + (read ? read.s : 0) + (word ? word.s : 0);
 }
 
 /* ================= 沉浸阅读 ================= */
