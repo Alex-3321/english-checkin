@@ -1095,35 +1095,70 @@ async function loadMyAppeals() {
   });
 }
 
-async function openAdminUser(id) {
-  state.adminUserId = id;
-  const d = await api(`/api/admin/users/${id}`);
+/* ---------- 后台：用户详情（全局唯一弹窗，不叠加） ---------- */
+let adminUserId = null;
+
+function renderAdminUser(d) {
   const imgs = d.photos.map((p) => `
     <div class="admin-photo ${p.deleted ? 'is-deleted' : ''}">
       <button class="album-item" style="background-image:url('${p.url}')" data-url="${p.url}"></button>
       ${p.deleted ? '<span class="admin-photo-tag">已删除</span>' : `<button class="admin-photo-del" data-del="${p.id}">删除</button>`}
     </div>`).join('');
-  const box = document.createElement('div');
-  box.className = 'admin-detail';
-  box.innerHTML = `<h3>${esc(d.user.name)} <small>${esc(d.user.class_name)} · ${esc(d.user.student_id)}</small></h3>
+
+  const body = $('#adminUserBody');
+  body.innerHTML = `
+    <h3>${esc(d.user.name)} <small>${esc(d.user.class_name)} · ${esc(d.user.student_id)}</small></h3>
     <p class="lede">本季 ${d.quarter_score} · 总分 ${d.user.total_score} · 记录 ${d.records.length} 条</p>
     <div class="album">${imgs || '<p class="empty">无照片</p>'}</div>`;
-  box.querySelectorAll('.album-item').forEach((el) => el.addEventListener('click', () => openLightbox(el.dataset.url)));
-  box.querySelectorAll('[data-del]').forEach((btn) => btn.addEventListener('click', async (ev) => {
+  body.querySelectorAll('.album-item').forEach((el) =>
+    el.addEventListener('click', () => openLightbox(el.dataset.url)));
+  body.querySelectorAll('[data-del]').forEach((btn) => btn.addEventListener('click', async (ev) => {
     ev.stopPropagation();
-    const id = btn.dataset.del;
-    if (!confirm('确定删除这张违规照片？\n（软删除：数据库标记隐藏，文件保留，可追溯）')) return;
+    const rid = btn.dataset.del;
+    if (!(await askConfirm('确定删除这张违规照片？\n（软删除：数据库标记隐藏，文件保留，可追溯）', '删除'))) return;
     btn.disabled = true;
     try {
-      await api(`/api/admin/records/${id}/delete`, { method: 'POST' });
+      await api(`/api/admin/records/${rid}/delete`, { method: 'POST' });
       toast('照片已隐藏（软删除）');
-      box.remove();
-      await openAdminUser(state.adminUserId || 0);
+      await refreshAdminUser();
     } catch (e) { toast(e.message, true); btn.disabled = false; }
   }));
-  $('#view-admin').appendChild(box);
-  box.scrollIntoView({ behavior: 'smooth' });
 }
+
+async function openAdminUser(id) {
+  /* 清理历史遗留的旧详情层，确保 DOM 中只有一份 */
+  document.querySelectorAll('#view-admin .admin-detail').forEach((el) => el.remove());
+  const d = await api(`/api/admin/users/${id}`);
+  adminUserId = id;
+  renderAdminUser(d);
+  $('#adminUserModal').hidden = false;
+}
+
+async function refreshAdminUser() {
+  if (!adminUserId) return;
+  try {
+    const d = await api(`/api/admin/users/${adminUserId}`);
+    renderAdminUser(d);
+  } catch (e) {
+    closeAdminUser();
+    toast(e.message, true);
+  }
+}
+
+function closeAdminUser() {
+  $('#adminUserModal').hidden = true;
+  const body = $('#adminUserBody');
+  if (body) body.innerHTML = '';       /* 清空数据，避免残留上一个人的照片 */
+  adminUserId = null;
+}
+
+$('#adminUserClose').addEventListener('click', closeAdminUser);
+$('#adminUserModal').addEventListener('click', (e) => {
+  if (e.target.id === 'adminUserModal') closeAdminUser();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#adminUserModal').hidden) closeAdminUser();
+});
 
 $('#saveSiteTitle').addEventListener('click', async () => {
   const val = $('#siteTitleInput').value.trim();
