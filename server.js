@@ -458,7 +458,8 @@ function quarterScore(uid) {
 const READ = { perMinute: 1, perArticleCap: 6, dailyCap: 12, batchSize: 10 };
 const BATCH_COUNT = () => Math.ceil(readingLib.ARTICLES.length / READ.batchSize);
 const tierSize = (d) => readingLib.byDifficulty(d).length;
-const batchCountFor = (d) => Math.max(1, Math.ceil((tierSize(d) || READ.batchSize) / READ.batchSize));
+const batchSizeFor = (d) => Math.min(READ.batchSize, Math.max(1, tierSize(d) || READ.batchSize));
+const batchCountFor = (d) => Math.max(1, Math.ceil((tierSize(d) || READ.batchSize) / batchSizeFor(d)));
 const DAY_MS = 864e5;
 
 function readQuota(uid, day) {
@@ -549,8 +550,10 @@ function pickDailySet(uid, day, n, difficulty) {
 }
 
 function ensureBatch(uid, day, batch) {
-  const from = (batch - 1) * READ.batchSize + 1;
-  const to = batch * READ.batchSize;
+  const q0 = readQuota(uid, day);
+  const size = batchSizeFor(q0.difficulty);
+  const from = (batch - 1) * size + 1;
+  const to = batch * size;
   const rows = db.prepare('SELECT seq, article_id FROM read_served WHERE user_id=? AND day=?').all(uid, day);
   const have = new Map(rows.map((r) => [r.seq, r.article_id]));
   const missing = [];
@@ -560,7 +563,7 @@ function ensureBatch(uid, day, batch) {
   const usedAll = new Set(db.prepare('SELECT article_id FROM read_served WHERE user_id=?').all(uid).map((r) => r.article_id));
   const need = missing.length + usedToday.size;
   const q = readQuota(uid, day);
-  const picks = pickDailySet(uid, day, Math.max(need, READ.batchSize), q.difficulty).filter((id) => !usedToday.has(id));
+  const picks = pickDailySet(uid, day, Math.max(need, size), q.difficulty).filter((id) => !usedToday.has(id));
   for (const seq of missing) {
     const id = picks.shift();
     if (!id) break;
@@ -581,9 +584,10 @@ function readListPayload(uid, day) {
   const q = readQuota(uid, day);
   const curBatch = Number(q.current_batch) || 1;
   const batches = [];
+  const size = batchSizeFor(q.difficulty);
   for (let b = curBatch; b <= curBatch; b++) {
     const rows = db.prepare(`SELECT seq, article_id FROM read_served WHERE user_id=? AND day=? AND seq BETWEEN ? AND ? ORDER BY seq`)
-      .all(uid, day, (b - 1) * READ.batchSize + 1, b * READ.batchSize);
+      .all(uid, day, (b - 1) * size + 1, b * size);
     batches.push({
       batch: b,
       items: rows.map((r) => {
