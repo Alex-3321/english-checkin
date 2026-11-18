@@ -35,7 +35,17 @@ function savePack(pack) {
 function launch(pack) {
   window.__WORD_PACK__ = pack;
   document.body.classList.add('word-mode');
-  cover.hidden = true;
+  const t0 = performance.now();
+  const done = () => {
+    cover.hidden = true;
+    console.log(`[wordpack] ready in ${Math.round(performance.now() - t0)}ms`);
+  };
+  window.addEventListener('wordpack-ready', done, { once: true });
+  setTimeout(done, 1600);            /* 兜底：引擎没发事件也不挡住画面 */
+  titleEl.textContent = '正在准备卡包…';
+  subEl.textContent = '全息引擎加载中';
+  leftEl.textContent = '';
+  startBtn.hidden = true;
   import('./src/main.js').catch(() => {
     showError('加载卡包失败，请重试');
     cover.hidden = false;

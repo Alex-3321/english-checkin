@@ -2526,4 +2526,9 @@ if (WORD_MODE) {
 
 measureStage();
 enterFreshPack();
+requestAnimationFrame(() => {
+  requestAnimationFrame(() => {
+    try { window.dispatchEvent(new Event('wordpack-ready')); } catch (e) {}
+  });
+});
 requestAnimationFrame(tick);
