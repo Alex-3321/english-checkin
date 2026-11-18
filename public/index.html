@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1A362D">
 <title>朗英 英语协会</title>
-<link rel="stylesheet" href="/style.css?v=11181639">
+<link rel="stylesheet" href="/style.css?v=11181654">
 </head>
 <body>
 
@@ -266,7 +266,7 @@
     </div>
   </section>
 
-  <!-- 撕包抽卡 -->
+  <!-- 撕包抽卡（逐张） -->
   <section id="view-wordpack" class="view" hidden>
     <div class="pack-stage">
       <p class="read-kicker">PACK OPENING</p>
@@ -276,13 +276,23 @@
         <div class="pack-body"><span>WORDS</span><small>5 CARDS</small></div>
       </div>
       <button type="button" class="btn btn-primary btn-lg" id="openPack">开始抽卡</button>
-      <p class="pack-hint" id="packHint">每包 5 张单词卡，全部翻完后自动进收藏夹</p>
+      <p class="pack-hint" id="packHint">一次只翻一张，翻开后点「下一张」</p>
     </div>
 
-    <div class="flip-grid" id="flipGrid"></div>
+    <p class="pack-counter" id="packCounter" hidden>第 <b id="packIdx">1</b> / 5 张</p>
+    <div class="flip-grid single" id="flipGrid"></div>
+    <div class="pack-actions" id="packActions" hidden>
+      <button type="button" class="btn btn-primary" id="flipBtn">翻开这张</button>
+      <button type="button" class="btn btn-line" id="nextBtn" hidden>下一张</button>
+      <button type="button" class="btn btn-primary" id="finishPack" hidden>收下这一包</button>
+    </div>
+
     <div class="pack-done" id="packDone" hidden>
-      <p class="lead-in">已加入收藏夹</p>
-      <button type="button" class="btn btn-primary" id="toBook">去收藏夹</button>
+      <p class="lead-in">已加入收藏夹 · 抽卡 +2 分</p>
+      <div class="pack-done-actions">
+        <button type="button" class="btn btn-primary" id="toBook">去收藏夹</button>
+        <button type="button" class="btn btn-line" id="toStudyNow">直接开始背诵</button>
+      </div>
     </div>
   </section>
 
@@ -295,28 +305,71 @@
         <p class="read-subtitle" id="bookMeta">—</p>
       </div>
       <div class="read-chips">
-        <button type="button" class="btn btn-primary" id="startStudy">开始背诵</button>
+        <button type="button" class="btn btn-line" id="goWords">再抽一包</button>
       </div>
     </div>
     <div id="bookList" class="book-list"></div>
     <p class="empty" id="bookEmpty" hidden>还没有抽到单词，先去抽一包吧。</p>
   </section>
 
-  <!-- 背诵 -->
+  <!-- 背诵（三关） -->
   <section id="view-wordstudy" class="view" hidden>
     <div class="study-wrap" id="studyWrap">
-      <div class="study-bar"><span id="studyProgress">1 / 5</span><span id="studyScore">+0 分</span></div>
-      <p class="word-step">选择正确的中文释义</p>
+      <div class="study-bar">
+        <span id="studyStage">第 1 关 · 选意思</span>
+        <span id="studyProgress">1 / 5</span>
+        <span id="studyScore">已过 0 / 5</span>
+      </div>
+      <p class="word-step" id="studyHint">选择正确的中文释义</p>
       <div class="study-word" id="studyWord">—</div>
       <div class="study-pos" id="studyPos">—</div>
+      <p class="study-example" id="studyExample" hidden></p>
       <div class="study-opts" id="studyOpts"></div>
-      <p class="study-feedback" id="studyFeedback"></p>
+      <div class="study-recall" id="studyRecall" hidden>
+        <button type="button" class="btn btn-primary" id="recallYes">记住了</button>
+        <button type="button" class="btn btn-line" id="recallNo">忘记了</button>
+      </div>
+      <p class="study-feedback" id="studyFeedback" aria-live="polite"></p>
     </div>
     <div class="study-done" id="studyDone" hidden>
       <p class="read-kicker">SESSION COMPLETE</p>
-      <h2 class="read-title" id="doneTitle">本轮完成</h2>
+      <h2 class="read-title">本包完成</h2>
       <p class="read-subtitle" id="doneStat">—</p>
-      <button type="button" class="btn btn-primary" id="backBook">返回收藏夹</button>
+      <div class="pack-done-actions">
+        <button type="button" class="btn btn-primary" id="goSpell">拼写这包</button>
+        <button type="button" class="btn btn-line" id="backBook">返回收藏夹</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 拼写 -->
+  <section id="view-wordspell" class="view" hidden>
+    <div class="study-wrap" id="spellWrap">
+      <div class="study-bar">
+        <span>拼写关</span>
+        <span id="spellProgress">1 / 5</span>
+        <span id="spellScore">+0 分</span>
+      </div>
+      <p class="word-step">看释义，拼出单词</p>
+      <div class="spell-zh" id="spellZh">—</div>
+      <div class="study-pos" id="spellPos">—</div>
+      <p class="study-example" id="spellEx" hidden></p>
+      <input class="word-input" id="spellInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入单词">
+      <div class="spell-actions">
+        <button type="button" class="btn btn-primary" id="spellSubmit">提交</button>
+        <button type="button" class="btn btn-line" id="spellHint">提示</button>
+        <button type="button" class="btn btn-line" id="spellSkip">跳过</button>
+      </div>
+      <p class="study-feedback" id="spellFeedback" aria-live="polite"></p>
+    </div>
+    <div class="study-done" id="spellDone" hidden>
+      <p class="read-kicker">SPELLING COMPLETE</p>
+      <h2 class="read-title">拼写完成</h2>
+      <p class="read-subtitle" id="spellStat">—</p>
+      <div class="pack-done-actions">
+        <button type="button" class="btn btn-primary" id="spellBack">返回收藏夹</button>
+        <button type="button" class="btn btn-line" id="spellAgain">再拼一遍</button>
+      </div>
     </div>
   </section>
 
@@ -609,7 +662,7 @@
   </div>
 </div>
 
-<script src="/ranks.js?v=11181639"></script>
-<script src="/app.js?v=11181639"></script>
+<script src="/ranks.js?v=11181654"></script>
+<script src="/app.js?v=11181654"></script>
 </body>
 </html>

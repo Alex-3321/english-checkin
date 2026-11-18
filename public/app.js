@@ -132,7 +132,7 @@ async function loadSiteTitle() {
 }
 
 /* ================= 路由 ================= */
-const ROUTES = ['auth', 'home', 'rank', 'read', 'words', 'wordpack', 'wordbook', 'wordstudy', 'me', 'user', 'friends', 'chat', 'admin'];
+const ROUTES = ['auth', 'home', 'rank', 'read', 'words', 'wordpack', 'wordbook', 'wordstudy', 'wordspell', 'me', 'user', 'friends', 'chat', 'admin'];
 
 function showView(name) {
   ROUTES.forEach((v) => { const el = $(`#view-${v}`); if (el) el.hidden = v !== name; });
@@ -170,6 +170,7 @@ async function router() {
     else if (route === 'wordpack') { showView('wordpack'); resetPackPage(); }
     else if (route === 'wordbook') { showView('wordbook'); await loadCollection(); }
     else if (route === 'wordstudy') { showView('wordstudy'); await loadStudy(); }
+    else if (route === 'wordspell') { showView('wordspell'); await loadSpell(); }
     else if (route === 'me') { showView('me'); await loadMe(); }
     else if (route === 'user' && param) { showView('user'); await loadUser(Number(param)); }
     else if (route === 'friends') { showView('friends'); await loadFriends(); }
@@ -530,14 +531,28 @@ $('#announceOk').addEventListener('click', () => {
 
 
 
-/* ================= 抽词卡牌（整页流程） ================= */
-const wordState = { data: null, packs: [], study: { list: [], idx: 0, correct: 0, points: 0 } };
+/* ================= 抽词卡牌（逐张 + 三关 + 拼写） ================= */
+const wordState = {
+  data: null,
+  pack: { day: null, pack_no: 1, words: [] },
+  idx: 0,
+  study: { day: null, pack_no: 1, q1: [], q2: [], q3: [], total: 0, points: 0, done: 0 },
+  spell: { list: [], idx: 0, points: 0, repeat: false },
+};
+
+function setActivePack(day, packNo) {
+  try { sessionStorage.setItem('wp_active', JSON.stringify({ day, pack_no: packNo })); } catch (e) {}
+}
+function getActivePack() {
+  try { const v = JSON.parse(sessionStorage.getItem('wp_active') || 'null'); if (v && v.day) return v; } catch (e) {}
+  return null;
+}
 
 function syncWordScore(d) {
   if (!d) return;
-  $('#wordScore').textContent = `今日 ${d.points_today} 分`;
-  $('#wordDraws').textContent = d.draws_left > 0 ? `还可抽 ${d.draws_left} 次` : '今日已抽完';
-  $('#startPack').disabled = d.draws_left <= 0;
+  const sc = $('#wordScore'); if (sc) sc.textContent = `今日 ${d.points_today} 分`;
+  const dr = $('#wordDraws'); if (dr) dr.textContent = d.draws_left > 0 ? `还可抽 ${d.draws_left} 次` : '今日已抽完';
+  const sp = $('#startPack'); if (sp) sp.disabled = d.draws_left <= 0;
 }
 
 async function loadWords() {
@@ -547,44 +562,67 @@ async function loadWords() {
 }
 
 $('#startPack').addEventListener('click', () => { location.hash = '#/wordpack'; });
-$('#goBook').addEventListener('click', () => { location.hash = '#/wordbook'; });
+$('#goWords').addEventListener('click', () => { location.hash = '#/wordpack'; });
 
+/* ---------- 逐张抽卡 ---------- */
 function resetPackPage() {
   $('#flipGrid').innerHTML = '';
+  $('#packActions').hidden = true;
   $('#packDone').hidden = true;
+  $('#packCounter').hidden = true;
   $('#pack').classList.remove('is-open', 'is-tearing');
-  $('#packHint').textContent = '每包 5 张单词卡，全部翻完后自动进收藏夹';
+  $('#pack').style.display = '';
+  $('#packHint').textContent = '一次只翻一张，翻开后点「下一张」';
   $('#openPack').disabled = false;
   $('#openPack').hidden = false;
+  $('#flipBtn').hidden = false;
+  $('#nextBtn').hidden = true;
+  $('#finishPack').hidden = true;
 }
 
-function flipCardHTML(w, i) {
-  return `<div class="flip-card" data-i="${i}">
+function cardBackHTML() {
+  return `<div class="flip-card" id="currentCard">
     <div class="flip-inner">
-      <div class="flip-face flip-back"><span>WORD ${String(i + 1).padStart(2, '0')}</span></div>
-      <div class="flip-face flip-front">
-        <div class="fc-word">${esc(w.w)}</div>
-        <div class="fc-pos">${esc(w.pos)} ${esc(w.zh)}</div>
-        <div class="fc-phrase">常用搭配：${esc(w.phrase || '—')}${w.phrase_zh ? '（' + esc(w.phrase_zh) + '）' : ''}</div>
-        <div class="fc-ex"><b>例1</b>${esc(w.ex || '')}</div>
-        <div class="fc-ex"><b>例2</b>${esc(w.ex2 || '')}</div>
-      </div>
+      <div class="flip-face flip-back"><span>WORD</span></div>
+      <div class="flip-face flip-front"></div>
     </div>
   </div>`;
 }
 
+function cardFrontHTML(w) {
+  return `
+    <div class="fc-word">${esc(w.w)}</div>
+    <div class="fc-pos">${esc(w.pos)} ${esc(w.zh)}</div>
+    <div class="fc-phrase">常用搭配：${esc(w.phrase || '—')}${w.phrase_zh ? '（' + esc(w.phrase_zh) + '）' : ''}</div>
+    <div class="fc-ex"><b>例1</b>${esc(w.ex || '')}</div>
+    <div class="fc-ex"><b>例2</b>${esc(w.ex2 || '')}</div>`;
+}
+
+function renderCurrentCard() {
+  const w = wordState.pack.words[wordState.idx];
+  const grid = $('#flipGrid');
+  if (!w) return;
+  grid.innerHTML = cardBackHTML();
+  const card = $('#currentCard');
+  const front = card.querySelector('.flip-front');
+  front.innerHTML = cardFrontHTML(w);
+  $('#packCounter').hidden = false;
+  $('#packIdx').textContent = String(wordState.idx + 1);
+  $('#flipBtn').hidden = false;
+  $('#nextBtn').hidden = true;
+  $('#finishPack').hidden = true;
+}
+
 $('#openPack').addEventListener('click', async () => {
   const btn = $('#openPack');
-  btn.disabled = true;
-  btn.hidden = true;
+  btn.disabled = true; btn.hidden = true;
   let r;
-  try {
-    r = await api('/api/words/draw', { method: 'POST' });
-  } catch (e) {
-    toast(e.message, true);
-    btn.disabled = false; btn.hidden = false;
-    return;
-  }
+  try { r = await api('/api/words/draw', { method: 'POST' }); }
+  catch (e) { toast(e.message, true); btn.disabled = false; btn.hidden = false; return; }
+
+  wordState.pack = { day: r.day, pack_no: r.pack_no, words: r.words };
+  wordState.idx = 0;
+  setActivePack(r.day, r.pack_no);
   wordState.data = r.state;
   syncWordScore(r.state);
 
@@ -594,34 +632,51 @@ $('#openPack').addEventListener('click', async () => {
   await new Promise((res) => setTimeout(res, 520));
   pack.classList.remove('is-tearing');
   pack.classList.add('is-open');
+  pack.style.display = 'none';
 
-  const grid = $('#flipGrid');
-  grid.innerHTML = r.words.map(flipCardHTML).join('');
-  const cards = [...grid.querySelectorAll('.flip-card')];
-  for (let i = 0; i < cards.length; i++) {
-    await new Promise((res) => setTimeout(res, 260));
-    cards[i].classList.add('is-open');
-  }
-  $('#packHint').textContent = '5 张卡已全部翻开';
+  $('#packActions').hidden = false;
+  renderCurrentCard();
+  $('#packHint').textContent = `抽到 ${r.words.length} 个词，抽卡 +${r.gained} 分`;
   toast(`抽卡成功 +${r.gained} 积分`);
+});
+
+$('#flipBtn').addEventListener('click', () => {
+  const card = $('#currentCard');
+  if (!card) return;
+  card.classList.add('is-open');
+  $('#flipBtn').hidden = true;
+  const last = wordState.idx >= wordState.pack.words.length - 1;
+  if (last) $('#finishPack').hidden = false;
+  else $('#nextBtn').hidden = false;
+});
+
+$('#nextBtn').addEventListener('click', () => {
+  wordState.idx++;
+  renderCurrentCard();
+});
+
+$('#finishPack').addEventListener('click', () => {
+  $('#packActions').hidden = true;
   $('#packDone').hidden = false;
-  setTimeout(() => { location.hash = '#/wordbook'; }, 1400);
 });
 
 $('#toBook').addEventListener('click', () => { location.hash = '#/wordbook'; });
+$('#toStudyNow').addEventListener('click', () => { location.hash = '#/wordstudy'; });
 
+/* ---------- 收藏夹 ---------- */
 async function loadCollection() {
   const d = await api('/api/words/collection');
-  wordState.packs = d.packs;
-  $('#bookMeta').textContent = `共 ${d.total} 个词 · 已背 ${d.learned} 个`;
+  $('#bookMeta').textContent = `共 ${d.total} 个词 · 已背完 ${d.learned} 个 · 已拼写 ${d.spelled} 个`;
   const box = $('#bookList');
   if (!d.packs.length) { box.innerHTML = ''; $('#bookEmpty').hidden = false; return; }
   $('#bookEmpty').hidden = true;
-  box.innerHTML = d.packs.map((p) => `
-    <div class="book-pack">
+  box.innerHTML = d.packs.map((p) => {
+    const done = p.stages[3] || 0;
+    const prog = done > 0 || (p.stages[1] || 0) + (p.stages[2] || 0) > 0;
+    return `<div class="book-pack">
       <div class="book-pack-head">
         <strong>第 ${p.pack_no} 包</strong>
-        <span>${esc(p.day)} · ${p.words.length} 个词</span>
+        <span>${esc(p.day)} · ${p.words.length} 个词 · 已背 ${done}/${p.words.length} · 已拼写 ${p.spelled}/${p.words.length}</span>
       </div>
       ${p.words.map((w) => `
         <div class="book-word">
@@ -629,79 +684,253 @@ async function loadCollection() {
             <div class="bw-w">${esc(w.w)} <small style="color:var(--faint);font-weight:400">${esc(w.pos)}</small></div>
             <div class="bw-zh">${esc(w.zh)}${w.phrase ? ' · ' + esc(w.phrase) : ''}</div>
           </div>
-          <span class="bw-tag ${w.learned ? 'is-done' : ''}">${w.learned ? '已背诵' : '未背诵'}</span>
+          <span class="bw-tag ${w.stage >= 3 ? 'is-done' : ''}">${w.spell_done ? '已拼写' : w.stage >= 3 ? '已背完' : w.stage === 0 ? '未开始' : '第 ' + w.stage + ' 关'}</span>
         </div>`).join('')}
-    </div>`).join('');
-}
+      <div class="book-pack-actions">
+        <button class="btn btn-primary" data-study="${p.day}|${p.pack_no}">${prog ? '继续背诵' : '开始背诵'}</button>
+        <button class="btn btn-line" data-spell="${p.day}|${p.pack_no}" ${done ? '' : 'disabled'}>拼写</button>
+      </div>
+    </div>`;
+  }).join('');
 
-$('#startStudy').addEventListener('click', async () => {
-  const d = await api('/api/words/study');
-  if (!d.words.length) { toast('收藏夹里没有待背的单词', true); return; }
-  wordState.study = { list: d.words, idx: 0, correct: 0, points: 0 };
-  location.hash = '#/wordstudy';
-});
-
-async function loadStudy() {
-  if (!wordState.study.list.length) {
-    const d = await api('/api/words/study');
-    wordState.study = { list: d.words, idx: 0, correct: 0, points: 0 };
-  }
-  renderStudy();
-}
-
-function renderStudy() {
-  const st = wordState.study;
-  const wrap = $('#studyWrap');
-  const done = $('#studyDone');
-  if (st.idx >= st.list.length) {
-    wrap.hidden = true;
-    done.hidden = false;
-    $('#doneTitle').textContent = '本轮背诵完成';
-    $('#doneStat').textContent = `答对 ${st.correct} / ${st.list.length} 个单词，获得 ${st.points} 积分`;
-    return;
-  }
-  wrap.hidden = false;
-  done.hidden = true;
-  const w = st.list[st.idx];
-  $('#studyProgress').textContent = `${st.idx + 1} / ${st.list.length}`;
-  $('#studyScore').textContent = `+${st.points} 分`;
-  $('#studyWord').textContent = w.w;
-  $('#studyPos').textContent = w.pos;
-  $('#studyFeedback').textContent = '';
-  const opts = $('#studyOpts');
-  opts.innerHTML = w.options.map((o) => `<button type="button" data-opt="${esc(o)}">${esc(o)}</button>`).join('');
-  let locked = false;
-  opts.querySelectorAll('[data-opt]').forEach((btn) => btn.addEventListener('click', async () => {
-    if (locked) return;
-    locked = true;
-    const right = btn.dataset.opt === w.zh;
-    opts.querySelectorAll('[data-opt]').forEach((b) => {
-      if (b.dataset.opt === w.zh) b.classList.add('is-right');
-      else if (b === btn) b.classList.add('is-wrong');
-    });
-    if (right) {
-      $('#studyFeedback').textContent = '答对了，+2 分';
-      st.correct++;
-      try {
-        const r = await api('/api/words/learn', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ word_id: w.id }),
-        });
-        st.points += r.gained;
-        syncWordScore(r.state);
-        toast(`答对 +${r.gained} 积分`);
-      } catch (e) { /* 忽略 */ }
-    } else {
-      $('#studyFeedback').textContent = `答错了，正确释义：${w.zh}`;
-    }
-    $('#studyScore').textContent = `+${st.points} 分`;
-    await new Promise((r) => setTimeout(r, 900));
-    st.idx++;
-    renderStudy();
+  box.querySelectorAll('[data-study]').forEach((btn) => btn.addEventListener('click', () => {
+    const [day, no] = btn.dataset.study.split('|');
+    setActivePack(day, Number(no));
+    location.hash = '#/wordstudy';
+  }));
+  box.querySelectorAll('[data-spell]').forEach((btn) => btn.addEventListener('click', () => {
+    const [day, no] = btn.dataset.spell.split('|');
+    setActivePack(day, Number(no));
+    location.hash = '#/wordspell';
   }));
 }
 
+/* ---------- 三关背诵 ---------- */
+async function fetchPack(ap) {
+  return api(`/api/words/pack?day=${encodeURIComponent(ap.day)}&pack_no=${ap.pack_no}`);
+}
+
+async function loadStudy() {
+  let ap = getActivePack();
+  if (!ap) {
+    const d = await api('/api/words/collection');
+    const p = d.packs.find((x) => (x.stages[3] || 0) < x.words.length);
+    if (!p) { toast('收藏夹里没有待背的包', true); location.hash = '#/wordbook'; return; }
+    ap = { day: p.day, pack_no: p.pack_no };
+    setActivePack(ap.day, ap.pack_no);
+  }
+  const d = await fetchPack(ap);
+  const st = wordState.study;
+  st.day = d.day; st.pack_no = d.pack_no;
+  st.total = d.words.length;
+  st.q1 = d.words.filter((w) => w.stage === 0);
+  st.q2 = d.words.filter((w) => w.stage === 1);
+  st.q3 = d.words.filter((w) => w.stage === 2);
+  st.done = d.words.filter((w) => w.stage >= 3).length;
+  st.points = 0;
+  renderStage();
+}
+
+function studyStats() {
+  const st = wordState.study;
+  $('#studyProgress').textContent = `第 ${Math.min(st.done + 1, st.total)} / ${st.total} 个`;
+  $('#studyScore').textContent = `已过 ${st.done} / ${st.total}`;
+}
+
+function showStudyDone() {
+  $('#studyWrap').hidden = true;
+  $('#studyDone').hidden = false;
+  $('#doneStat').textContent = `${wordState.study.total} 个词三关全过 · +${wordState.study.points} 分`;
+}
+
+function renderStage() {
+  const st = wordState.study;
+  const wrap = $('#studyWrap');
+  $('#studyDone').hidden = true;
+  wrap.hidden = false;
+
+  let word = null, stage = 0;
+  if (st.q1.length) { word = st.q1[0]; stage = 0; }
+  else if (st.q2.length) { word = st.q2[0]; stage = 1; }
+  else if (st.q3.length) { word = st.q3[0]; stage = 2; }
+  else { showStudyDone(); return; }
+
+  $('#studyStage').textContent = ['第 1 关 · 选意思', '第 2 关 · 例句回忆', '第 3 关 · 只看单词'][stage];
+  $('#studyHint').textContent = ['选择正确的中文释义', '看例句，回忆它是什么意思', '只看单词，回忆它的意思'][stage];
+  $('#studyWord').textContent = word.w;
+  $('#studyPos').textContent = stage === 0 ? word.pos : '';
+  $('#studyFeedback').textContent = '';
+  $('#studyOpts').innerHTML = '';
+  $('#studyExample').hidden = true;
+  $('#studyRecall').hidden = true;
+  studyStats();
+
+  if (stage === 0) {
+    $('#studyOpts').innerHTML = word.options.map((o) => `<button type="button" data-opt="${esc(o)}">${esc(o)}</button>`).join('');
+    let locked = false;
+    $('#studyOpts').querySelectorAll('[data-opt]').forEach((btn) => btn.addEventListener('click', async () => {
+      if (locked) return;
+      locked = true;
+      const right = btn.dataset.opt === word.zh;
+      $('#studyOpts').querySelectorAll('[data-opt]').forEach((b) => {
+        if (b.dataset.opt === word.zh) b.classList.add('is-right');
+        else if (b === btn) b.classList.add('is-wrong');
+      });
+      try {
+        const r = await api('/api/words/answer', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ word_id: word.id, choice: btn.dataset.opt }),
+        });
+        if (r.correct) {
+          st.q1.shift();
+          word.stage = r.stage;
+          st.q2.push(word);
+          $('#studyFeedback').textContent = '选对了';
+          await new Promise((res) => setTimeout(res, 500));
+        } else {
+          $('#studyFeedback').textContent = `正确释义：${word.zh}`;
+          st.q1.shift();
+          st.q1.push(word);            /* 回到队尾重来 */
+          await new Promise((res) => setTimeout(res, 1000));
+        }
+      } catch (e) { $('#studyFeedback').textContent = e.message; }
+      renderStage();
+    }));
+    return;
+  }
+
+  if (stage === 1) {
+    const ex = (word.ex || word.ex2 || '').replace(new RegExp(word.w, 'ig'), (m) => `<b>${m}</b>`);
+    $('#studyExample').hidden = false;
+    $('#studyExample').innerHTML = ex;
+  }
+  if (stage === 2) {
+    $('#studyWord').style.fontSize = '54px';
+  } else {
+    $('#studyWord').style.fontSize = '';
+  }
+  $('#studyRecall').hidden = false;
+  $('#recallYes').onclick = () => handleRecall(word, stage, true);
+  $('#recallNo').onclick = () => handleRecall(word, stage, false);
+}
+
+async function handleRecall(word, stage, remembered) {
+  const st = wordState.study;
+  try {
+    const r = await api('/api/words/recall', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ word_id: word.id, remembered }),
+    });
+    const queue = stage === 1 ? st.q2 : st.q3;
+    const i = queue.indexOf(word);
+    if (i >= 0) queue.splice(i, 1);
+
+    if (remembered) {
+      word.stage = r.stage;
+      if (r.stage === 2) st.q3.push(word);
+      if (r.stage >= 3) {
+        st.done++;
+        if (r.gained) { st.points += r.gained; toast(`已背完 +${r.gained} 分`); }
+      }
+      renderStage();
+      return;
+    }
+
+    /* 忘记了：回到第 1 关最前面 */
+    word.stage = 0;
+    st.q1.unshift(word);
+    $('#studyFeedback').textContent = `释义：${word.zh}　例句：${word.ex || ''}`;
+    $('#studyRecall').hidden = true;
+    await new Promise((res) => setTimeout(res, 1400));
+    renderStage();
+  } catch (e) { $('#studyFeedback').textContent = e.message; }
+}
+
+$('#goSpell').addEventListener('click', () => { location.hash = '#/wordspell'; });
 $('#backBook').addEventListener('click', () => { location.hash = '#/wordbook'; });
+
+/* ---------- 拼写关 ---------- */
+async function loadSpell() {
+  const ap = getActivePack();
+  const d = ap ? await fetchPack(ap) : { words: [] };
+  wordState.spell = { list: d.words.filter((w) => w.stage >= 3), idx: 0, points: 0, repeat: false };
+  if (!wordState.spell.list.length) {
+    toast('这一包还没有背完的词', true);
+    location.hash = '#/wordbook';
+    return;
+  }
+  renderSpell();
+}
+
+function renderSpell() {
+  const sp = wordState.spell;
+  $('#spellDone').hidden = true;
+  $('#spellWrap').hidden = false;
+  if (sp.idx >= sp.list.length) {
+    $('#spellWrap').hidden = true;
+    $('#spellDone').hidden = false;
+    $('#spellStat').textContent = `拼写完成 · +${sp.points} 分`;
+    return;
+  }
+  const w = sp.list[sp.idx];
+  $('#spellProgress').textContent = `${sp.idx + 1} / ${sp.list.length}`;
+  $('#spellScore').textContent = `+${sp.points} 分`;
+  $('#spellZh').textContent = w.zh;
+  $('#spellPos').textContent = w.pos;
+  const ex = w.ex || '';
+  const blanked = ex.replace(new RegExp(w.w, 'ig'), '____');
+  $('#spellEx').hidden = blanked === ex;
+  $('#spellEx').innerHTML = blanked === ex ? '' : `例句：${esc(blanked)}`;
+  $('#spellInput').value = '';
+  $('#spellInput').disabled = false;
+  $('#spellFeedback').textContent = '';
+  $('#spellInput').focus();
+}
+
+async function submitSpell() {
+  const sp = wordState.spell;
+  const w = sp.list[sp.idx];
+  const ans = $('#spellInput').value.trim();
+  if (!ans) return;
+  try {
+    const r = await api('/api/words/spell', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ word_id: w.id, answer: ans }),
+    });
+    if (r.correct) {
+      sp.points += r.gained;
+      $('#spellFeedback').textContent = r.gained ? `拼对了 +${r.gained} 分` : '拼对了（已计过分）';
+      if (r.gained) toast(`拼写正确 +${r.gained} 积分`);
+      await new Promise((res) => setTimeout(res, 650));
+      sp.idx++;
+      renderSpell();
+    } else {
+      $('#spellFeedback').textContent = `拼错了，正确拼写：${r.expected}`;
+      $('#spellInput').select();
+    }
+  } catch (e) { $('#spellFeedback').textContent = e.message; }
+}
+
+$('#spellSubmit').addEventListener('click', submitSpell);
+$('#spellInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitSpell(); });
+$('#spellHint').addEventListener('click', () => {
+  const w = wordState.spell.list[wordState.spell.idx];
+  if (!w) return;
+  $('#spellFeedback').textContent = `提示：${w.w[0]} ${'_ '.repeat(Math.max(0, w.w.length - 1))}（${w.w.length} 个字母）`;
+});
+$('#spellSkip').addEventListener('click', () => {
+  const sp = wordState.spell;
+  if (sp.list.length <= 1) return;
+  const w = sp.list.splice(sp.idx, 1)[0];
+  sp.list.push(w);
+  renderSpell();
+});
+$('#spellBack').addEventListener('click', () => { location.hash = '#/wordbook'; });
+$('#spellAgain').addEventListener('click', () => {
+  const sp = wordState.spell;
+  sp.idx = 0; sp.points = 0; sp.repeat = true;
+  renderSpell();
+});
 
 /* ================= 沉浸阅读 ================= */
 const readState = { list: null, article: null, mode: 'off', archived: false, timer: null, articleId: null };

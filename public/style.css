@@ -1022,3 +1022,21 @@ body > * { position: relative; z-index: 1; }
 .linkish{background:none;border:0;padding:0;font:inherit;font-size:12.5px;color:var(--faint);
   letter-spacing:.04em;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 .linkish:hover{color:var(--gold)}
+
+/* ---------- 逐张抽卡 / 三关背诵 / 拼写 ---------- */
+.pack-counter{margin:14px 0 0;text-align:center;font-size:12px;letter-spacing:.16em;color:var(--gold)}
+.pack-counter b{font-size:16px}
+.flip-grid.single{grid-template-columns:minmax(0,320px);justify-content:center;margin-top:12px}
+.flip-grid.single .flip-card{min-height:300px}
+.pack-actions{display:flex;justify-content:center;gap:10px;margin:18px 0 0}
+.pack-done-actions{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:14px}
+.study-example{margin:16px 0 0;padding:12px 14px;border-left:2px solid var(--gold);
+  background:rgba(185,146,63,.08);font-size:14px;line-height:1.8;color:var(--ink)}
+.study-example b{color:var(--gold)}
+.study-recall{display:flex;gap:10px;margin-top:22px}
+.study-recall .btn{flex:1;padding:14px 0;font-size:14px}
+.spell-zh{font-size:26px;font-weight:700;color:var(--ink);margin:4px 0 2px}
+.spell-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.spell-actions .btn{flex:1;min-width:90px}
+.book-pack-actions{display:flex;gap:8px;margin-top:10px}
+.book-pack-actions .btn{padding:7px 14px;font-size:12px}

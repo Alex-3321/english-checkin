@@ -165,8 +165,48 @@ db.exec(`
   const ucols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   if (!ucols.includes('is_hidden')) db.exec('ALTER TABLE users ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0');
   if (!ucols.includes('current_token')) db.exec('ALTER TABLE users ADD COLUMN current_token TEXT');
+  /* 确保表存在（新库直接建全字段；老库由下面 ALTER 补齐） */
+  db.exec(`CREATE TABLE IF NOT EXISTS user_words (
+    user_id INTEGER NOT NULL,
+    word_id INTEGER NOT NULL,
+    day TEXT NOT NULL,
+    learned INTEGER NOT NULL DEFAULT 0,
+    learned_at TEXT,
+    pack_no INTEGER NOT NULL DEFAULT 1,
+    stage INTEGER NOT NULL DEFAULT 0,
+    learn_awarded INTEGER NOT NULL DEFAULT 0,
+    spell_at TEXT,
+    spell_awarded INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, word_id)
+  )`);
   const uwcols = db.prepare('PRAGMA table_info(user_words)').all().map((c) => c.name);
-  if (uwcols.length && !uwcols.includes('pack_no')) db.exec('ALTER TABLE user_words ADD COLUMN pack_no INTEGER NOT NULL DEFAULT 0');
+  if (uwcols.length && !uwcols.includes('pack_no')) db.exec('ALTER TABLE user_words ADD COLUMN pack_no INTEGER NOT NULL DEFAULT 1');
+  if (uwcols.length && !uwcols.includes('stage')) db.exec('ALTER TABLE user_words ADD COLUMN stage INTEGER NOT NULL DEFAULT 0');
+  if (uwcols.length && !uwcols.includes('learn_awarded')) db.exec('ALTER TABLE user_words ADD COLUMN learn_awarded INTEGER NOT NULL DEFAULT 0');
+  if (uwcols.length && !uwcols.includes('spell_at')) db.exec('ALTER TABLE user_words ADD COLUMN spell_at TEXT');
+  if (uwcols.length && !uwcols.includes('spell_awarded')) db.exec('ALTER TABLE user_words ADD COLUMN spell_awarded INTEGER NOT NULL DEFAULT 0');
+
+  if (uwcols.length) {
+    /* 旧数据：学过 = 三关全过 */
+    const upd = db.prepare("UPDATE user_words SET stage=3 WHERE learned=1 AND stage<3").run();
+    const upd2 = db.prepare("UPDATE user_words SET learn_awarded=1 WHERE learned=1 AND learn_awarded=0").run();
+    if (upd.changes || upd2.changes) console.log(`[migrate] stage 回填 ${upd.changes} 行、learn_awarded 回填 ${upd2.changes} 行`);
+
+    /* pack_no 归一：0/空 → 当天词数最少的一包；>3 → 3 */
+    const bad = db.prepare('SELECT user_id, day, COUNT(*) c FROM user_words WHERE pack_no IS NULL OR pack_no < 1 GROUP BY user_id, day').all();
+    let moved = 0;
+    for (const g of bad) {
+      const counts = db.prepare('SELECT pack_no, COUNT(*) c FROM user_words WHERE user_id=? AND day=? AND pack_no BETWEEN 1 AND 3 GROUP BY pack_no').all(g.user_id, g.day);
+      const map = new Map(counts.map((x) => [Number(x.pack_no), x.c]));
+      let target = 1;
+      for (let n = 2; n <= 3; n++) if ((map.get(n) || 0) < (map.get(target) || 0)) target = n;
+      const r = db.prepare('UPDATE user_words SET pack_no=? WHERE user_id=? AND day=? AND (pack_no IS NULL OR pack_no < 1)').run(target, g.user_id, g.day);
+      moved += r.changes;
+    }
+    const hi = db.prepare('UPDATE user_words SET pack_no=3 WHERE pack_no>3').run();
+    db.exec('CREATE INDEX IF NOT EXISTS idx_user_words_pack ON user_words(user_id, day, pack_no)');
+    console.log(`[migrate] pack_no 修正 ${moved} 行、>3 归一 ${hi.changes} 行`);
+  }
 
   const qcols = db.prepare('PRAGMA table_info(read_quota)').all().map((c) => c.name);
   if (qcols.length && !qcols.includes('current_seq')) db.exec('ALTER TABLE read_quota ADD COLUMN current_seq INTEGER NOT NULL DEFAULT 0');
@@ -1044,24 +1084,36 @@ async function handleApi(req, res, url) {
 
 
   /* ================= 抽词卡牌 ================= */
-  const WORD_LIMIT = 3, WORD_DRAW_SIZE = 5, WORD_DRAW_POINTS = 2, WORD_LEARN_POINTS = 2;
+  const WORD_LIMIT = 3, WORD_DRAW_SIZE = 5, WORD_DRAW_POINTS = 2, WORD_STAGE_POINTS = 2, WORD_SPELL_POINTS = 2;
+
+  function clampPack(n) {
+    n = Number(n) || 1;
+    return Math.min(3, Math.max(1, Math.round(n)));
+  }
+
+  function wordRow(uid, wid) {
+    return db.prepare('SELECT * FROM user_words WHERE user_id=? AND word_id=?').get(uid, wid);
+  }
 
   function wordState(uid, day) {
     const d = db.prepare('SELECT draws, points FROM word_daily WHERE user_id=? AND day=?').get(uid, day) || { draws: 0, points: 0 };
-    const rows = db.prepare(`SELECT uw.word_id, uw.learned FROM user_words uw WHERE uw.user_id=? AND uw.day=?`).all(uid, day);
-    const items = rows.map((r) => {
+    const rows = db.prepare('SELECT word_id, learned, stage, spell_awarded FROM user_words WHERE user_id=? AND day=?').all(uid, day);
+    const words = rows.map((r) => {
       const w = WORDS[r.word_id - 1];
-      return w ? { id: w.id, w: w.w, pos: w.pos, zh: w.zh, ex: w.ex, learned: !!r.learned } : null;
+      if (!w) return null;
+      return {
+        id: w.id, w: w.w, pos: w.pos, zh: w.zh, ex: w.ex, ex2: w.ex2, phrase: w.phrase, phrase_zh: w.phrase_zh,
+        stage: Number(r.stage) || 0, learned: !!r.learned, spell_done: !!r.spell_awarded,
+      };
     }).filter(Boolean);
-    return { day, draws: d.draws, draws_left: Math.max(0, WORD_LIMIT - d.draws), limit: WORD_LIMIT, points_today: d.points, words: items };
+    return { day, draws: d.draws, draws_left: Math.max(0, WORD_LIMIT - d.draws), limit: WORD_LIMIT, points_today: d.points, words };
   }
 
   function wordOptions(word) {
     const pool = WORDS.filter((x) => x.id !== word.id && x.zh !== word.zh);
     const picks = [];
     while (picks.length < 3 && pool.length) {
-      const i = Math.floor(Math.random() * pool.length);
-      picks.push(pool.splice(i, 1)[0].zh);
+      picks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0].zh);
     }
     const opts = picks.concat(word.zh);
     for (let i = opts.length - 1; i > 0; i--) {
@@ -1069,6 +1121,31 @@ async function handleApi(req, res, url) {
       [opts[i], opts[j]] = [opts[j], opts[i]];
     }
     return opts;
+  }
+
+  function payloadWord(row) {
+    const w = WORDS[row.word_id - 1];
+    if (!w) return null;
+    return {
+      id: w.id, w: w.w, pos: w.pos, zh: w.zh, ex: w.ex, ex2: w.ex2,
+      phrase: w.phrase, phrase_zh: w.phrase_zh,
+      stage: Number(row.stage) || 0, learned: !!row.learned, spell_done: !!row.spell_awarded,
+      options: wordOptions(w),
+    };
+  }
+
+  /* 加分：word_daily + users.total_score，调用方负责事务 */
+  function awardWordPoints(uid, day, points) {
+    if (!points) return;
+    db.prepare('INSERT INTO word_daily (user_id,day,draws,points) VALUES (?,?,0,?) ON CONFLICT(user_id,day) DO UPDATE SET points=points+?')
+      .run(uid, day, points, points);
+    db.prepare('UPDATE users SET total_score = total_score + ? WHERE id=?').run(points, uid);
+  }
+
+  function withTx(fn) {
+    db.exec('BEGIN');
+    try { const r = fn(); db.exec('COMMIT'); return r; }
+    catch (e) { try { db.exec('ROLLBACK'); } catch (e2) {} throw e; }
   }
 
   if (p === '/api/words/state' && method === 'GET') {
@@ -1079,6 +1156,7 @@ async function handleApi(req, res, url) {
     const day = businessDay();
     const st = wordState(me.id, day);
     if (st.draws_left <= 0) return sendJSON(res, 429, { error: `每天最多抽 ${WORD_LIMIT} 次` });
+    const packNo = clampPack(st.draws + 1);
     const owned = new Set(db.prepare('SELECT word_id FROM user_words WHERE user_id=?').all(me.id).map((r) => r.word_id));
     let pool = WORDS.filter((w) => !owned.has(w.id));
     if (pool.length < WORD_DRAW_SIZE) pool = WORDS.filter((w) => !st.words.some((x) => x.id === w.id));
@@ -1087,63 +1165,160 @@ async function handleApi(req, res, url) {
       picked.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
     }
     if (!picked.length) return sendJSON(res, 429, { error: '词库已抽完' });
-    const packNo = st.draws + 1;
-    for (const w of picked) {
-      db.prepare('INSERT OR IGNORE INTO user_words (user_id,word_id,day,learned,pack_no) VALUES (?,?,?,0,?)').run(me.id, w.id, day, packNo);
-      db.prepare('UPDATE user_words SET pack_no=? WHERE user_id=? AND word_id=? AND pack_no=0').run(packNo, me.id, w.id);
-    }
-    db.prepare('INSERT INTO word_daily (user_id,day,draws,points) VALUES (?,?,1,?) ON CONFLICT(user_id,day) DO UPDATE SET draws=draws+1, points=points+?')
-      .run(me.id, day, WORD_DRAW_POINTS, WORD_DRAW_POINTS);
-    db.prepare('UPDATE users SET total_score = total_score + ? WHERE id=?').run(WORD_DRAW_POINTS, me.id);
+
+    withTx(() => {
+      for (const w of picked) {
+        db.prepare('INSERT OR IGNORE INTO user_words (user_id,word_id,day,learned,pack_no,stage) VALUES (?,?,?,0,?,0)')
+          .run(me.id, w.id, day, packNo);
+        db.prepare('UPDATE user_words SET pack_no=? WHERE user_id=? AND word_id=? AND (pack_no IS NULL OR pack_no<1)')
+          .run(packNo, me.id, w.id);
+      }
+      db.prepare('INSERT INTO word_daily (user_id,day,draws,points) VALUES (?,?,1,?) ON CONFLICT(user_id,day) DO UPDATE SET draws=draws+1, points=points+?')
+        .run(me.id, day, WORD_DRAW_POINTS, WORD_DRAW_POINTS);
+      db.prepare('UPDATE users SET total_score = total_score + ? WHERE id=?').run(WORD_DRAW_POINTS, me.id);
+    });
+
     return sendJSON(res, 200, {
       pack_no: packNo,
-      words: picked.map((w) => ({
-        id: w.id, w: w.w, pos: w.pos, zh: w.zh, ex: w.ex, ex2: w.ex2, phrase: w.phrase, phrase_zh: w.phrase_zh,
-        options: wordOptions(w), learned: false,
-      })),
+      day,
+      words: picked.map((w) => {
+        const row = wordRow(me.id, w.id);
+        return payloadWord(row);
+      }),
       gained: WORD_DRAW_POINTS,
       state: wordState(me.id, day),
     });
   }
 
-
   if (p === '/api/words/collection' && method === 'GET') {
-    const rows = db.prepare(`SELECT word_id, day, pack_no, learned FROM user_words WHERE user_id=? ORDER BY day DESC, pack_no DESC, word_id ASC`).all(me.id);
+    const rows = db.prepare(`SELECT word_id, day, pack_no, learned, stage, spell_awarded FROM user_words WHERE user_id=?
+                             ORDER BY day DESC, pack_no ASC, word_id ASC`).all(me.id);
     const packs = [];
     const map = new Map();
     for (const r of rows) {
-      const key = `${r.day}#${r.pack_no}`;
+      const packNo = clampPack(r.pack_no);
+      const key = `${r.day}#${packNo}`;
       if (!map.has(key)) {
-        const p = { day: r.day, pack_no: r.pack_no, words: [] };
-        map.set(key, p);
-        packs.push(p);
+        const pk = { day: r.day, pack_no: packNo, words: [], learned: 0, spelled: 0, stages: { 0: 0, 1: 0, 2: 0, 3: 0 } };
+        map.set(key, pk);
+        packs.push(pk);
       }
       const w = WORDS[r.word_id - 1];
-      if (w) map.get(key).words.push({ id: w.id, w: w.w, pos: w.pos, zh: w.zh, phrase: w.phrase, learned: !!r.learned });
+      if (!w) continue;
+      const stage = Number(r.stage) || 0;
+      const pk = map.get(key);
+      pk.words.push({
+        id: w.id, w: w.w, pos: w.pos, zh: w.zh, phrase: w.phrase,
+        stage, learned: stage >= 3, spell_done: !!r.spell_awarded,
+      });
+      pk.stages[stage] = (pk.stages[stage] || 0) + 1;
+      if (stage >= 3) pk.learned++;
+      if (r.spell_awarded) pk.spelled++;
     }
-    return sendJSON(res, 200, { packs, total: rows.length, learned: rows.filter((r) => r.learned).length });
+    return sendJSON(res, 200, {
+      packs,
+      total: rows.length,
+      learned: rows.filter((r) => (Number(r.stage) || 0) >= 3).length,
+      spelled: rows.filter((r) => r.spell_awarded).length,
+    });
+  }
+
+  if (p === '/api/words/pack' && method === 'GET') {
+    const day = url.searchParams.get('day') || businessDay();
+    const packNo = clampPack(url.searchParams.get('pack_no') || 1);
+    const rows = db.prepare('SELECT * FROM user_words WHERE user_id=? AND day=? AND pack_no=? ORDER BY word_id ASC').all(me.id, day, packNo);
+    return sendJSON(res, 200, {
+      day, pack_no: packNo,
+      words: rows.map(payloadWord).filter(Boolean),
+    });
+  }
+
+  if (p === '/api/words/answer' && method === 'POST') {
+    const b = JSON.parse((await readBody(req)).toString() || '{}');
+    const wid = Number(b.word_id);
+    const row = wordRow(me.id, wid);
+    if (!row) return sendJSON(res, 404, { error: '还没有抽到这个词' });
+    const w = WORDS[wid - 1];
+    const correct = String(b.choice || '') === w.zh;
+    let stage = Number(row.stage) || 0;
+    if (correct && stage === 0) {
+      db.prepare('UPDATE user_words SET stage=1 WHERE user_id=? AND word_id=?').run(me.id, wid);
+      stage = 1;
+    }
+    return sendJSON(res, 200, { correct, expected: w.zh, stage });
+  }
+
+  if (p === '/api/words/recall' && method === 'POST') {
+    const b = JSON.parse((await readBody(req)).toString() || '{}');
+    const wid = Number(b.word_id);
+    const day = businessDay();
+    const row = wordRow(me.id, wid);
+    if (!row) return sendJSON(res, 404, { error: '还没有抽到这个词' });
+    let stage = Number(row.stage) || 0;
+    let gained = 0, learned = stage >= 3;
+
+    if (!b.remembered) {
+      if (stage > 0 && stage < 3) {
+        db.prepare('UPDATE user_words SET stage=0 WHERE user_id=? AND word_id=?').run(me.id, wid);
+        stage = 0;
+      }
+      return sendJSON(res, 200, { stage, gained: 0, learned: stage >= 3 });
+    }
+
+    if (stage === 1) {
+      db.prepare('UPDATE user_words SET stage=2 WHERE user_id=? AND word_id=?').run(me.id, wid);
+      stage = 2;
+    } else if (stage === 2) {
+      withTx(() => {
+        db.prepare('UPDATE user_words SET stage=3, learned=1, learn_awarded=1, learned_at=? WHERE user_id=? AND word_id=?')
+          .run(nowCN(), me.id, wid);
+        if (!row.learn_awarded) awardWordPoints(me.id, day, WORD_STAGE_POINTS);
+      });
+      stage = 3;
+      learned = true;
+      gained = row.learn_awarded ? 0 : WORD_STAGE_POINTS;
+    }
+    return sendJSON(res, 200, { stage, gained, learned });
+  }
+
+  if (p === '/api/words/spell' && method === 'POST') {
+    const b = JSON.parse((await readBody(req)).toString() || '{}');
+    const wid = Number(b.word_id);
+    const day = businessDay();
+    const row = wordRow(me.id, wid);
+    if (!row) return sendJSON(res, 404, { error: '还没有抽到这个词' });
+    if ((Number(row.stage) || 0) < 3) return sendJSON(res, 409, { error: '先背完这个词' });
+    const w = WORDS[wid - 1];
+    const ans = String(b.answer || '').trim().toLowerCase();
+    const correct = ans === w.w.toLowerCase();
+    let gained = 0;
+    if (correct && !row.spell_awarded) {
+      withTx(() => {
+        db.prepare('UPDATE user_words SET spell_at=?, spell_awarded=1 WHERE user_id=? AND word_id=?').run(nowCN(), me.id, wid);
+        awardWordPoints(me.id, day, WORD_SPELL_POINTS);
+      });
+      gained = WORD_SPELL_POINTS;
+    }
+    return sendJSON(res, 200, { correct, expected: w.w, gained, spell_done: correct || !!row.spell_awarded });
   }
 
   if (p === '/api/words/study' && method === 'GET') {
-    const rows = db.prepare('SELECT word_id FROM user_words WHERE user_id=? AND learned=0 ORDER BY day DESC, pack_no DESC, word_id ASC LIMIT 20').all(me.id);
-    const words = rows.map((r) => WORDS[r.word_id - 1]).filter(Boolean);
-    return sendJSON(res, 200, {
-      words: words.map((w) => ({ id: w.id, w: w.w, pos: w.pos, zh: w.zh, phrase: w.phrase, phrase_zh: w.phrase_zh, ex: w.ex, options: wordOptions(w) })),
-    });
+    const rows = db.prepare('SELECT * FROM user_words WHERE user_id=? AND stage<3 ORDER BY day DESC, pack_no ASC, word_id ASC LIMIT 20').all(me.id);
+    return sendJSON(res, 200, { words: rows.map(payloadWord).filter(Boolean) });
   }
 
   if (p === '/api/words/learn' && method === 'POST') {
     const b = JSON.parse((await readBody(req)).toString() || '{}');
     const wid = Number(b.word_id);
     const day = businessDay();
-    const row = db.prepare('SELECT learned FROM user_words WHERE user_id=? AND word_id=?').get(me.id, wid);
+    const row = wordRow(me.id, wid);
     if (!row) return sendJSON(res, 404, { error: '还没有抽到这个词' });
-    if (row.learned) return sendJSON(res, 200, { ok: true, gained: 0, state: wordState(me.id, day) });
-    db.prepare('UPDATE user_words SET learned=1, learned_at=? WHERE user_id=? AND word_id=?').run(nowCN(), me.id, wid);
-    db.prepare('INSERT INTO word_daily (user_id,day,draws,points) VALUES (?,?,0,?) ON CONFLICT(user_id,day) DO UPDATE SET points=points+?')
-      .run(me.id, day, WORD_LEARN_POINTS, WORD_LEARN_POINTS);
-    db.prepare('UPDATE users SET total_score = total_score + ? WHERE id=?').run(WORD_LEARN_POINTS, me.id);
-    return sendJSON(res, 200, { ok: true, gained: WORD_LEARN_POINTS, state: wordState(me.id, day) });
+    if ((Number(row.stage) || 0) >= 3) return sendJSON(res, 200, { ok: true, gained: 0, state: wordState(me.id, day) });
+    withTx(() => {
+      db.prepare('UPDATE user_words SET stage=3, learned=1, learn_awarded=1, learned_at=? WHERE user_id=? AND word_id=?').run(nowCN(), me.id, wid);
+      if (!row.learn_awarded) awardWordPoints(me.id, day, WORD_STAGE_POINTS);
+    });
+    return sendJSON(res, 200, { ok: true, gained: row.learn_awarded ? 0 : WORD_STAGE_POINTS, state: wordState(me.id, day) });
   }
 
   /* ================= 沉浸阅读 ================= */
