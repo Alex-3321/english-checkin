@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1A362D">
 <title>朗英 英语协会</title>
-<link rel="stylesheet" href="/style.css?v=11181629">
+<link rel="stylesheet" href="/style.css?v=11181639">
 </head>
 <body>
 
@@ -247,36 +247,78 @@
     <p class="empty" id="otherAlbumEmpty" hidden>该用户未公开打卡记录。</p>
   </section>
 
-  <!-- 抽词 -->
+  <!-- 抽词入口 -->
   <section id="view-words" class="view" hidden>
     <div class="read-head">
       <div>
         <p class="read-kicker">WORD PACK · 每日抽词</p>
-        <h2 class="read-title">今日词包</h2>
-        <p class="read-subtitle">每天 3 次，每次 5 个词；抽卡 +2 分，背会一个 +2 分</p>
+        <h2 class="read-title">抽词背单词</h2>
+        <p class="read-subtitle">每天 3 次卡包，每包 5 个词；抽卡 +2 分，背会一个 +2 分</p>
       </div>
       <div class="read-chips">
         <span class="read-chip is-gold" id="wordScore">今日 0 分</span>
         <span class="read-chip" id="wordDraws">还可抽 3 次</span>
       </div>
     </div>
-    <div class="read-toolbar">
-      <div class="read-actions">
-        <button type="button" class="btn btn-primary" id="drawWords">抽 5 个词</button>
-        <a class="btn btn-line" href="/holo/index.html" target="_blank" rel="noopener">看撕包特效</a>
-      </div>
+    <div class="word-entry">
+      <button type="button" class="btn btn-primary btn-lg" id="startPack">开始抽词</button>
+      <button type="button" class="linkish" id="goBook">我的收藏夹 →</button>
     </div>
-    <div id="wordCards" class="word-cards"></div>
-    <p class="empty" id="wordEmpty">还没有抽词，点上面的按钮开一包。</p>
   </section>
 
-  <!-- 抽词学习弹层 -->
-  <div class="confirm" id="wordModal" hidden>
-    <div class="confirm-box word-box">
-      <button type="button" class="modal-x" id="wordClose" aria-label="关闭">×</button>
-      <div id="wordStudy"></div>
+  <!-- 撕包抽卡 -->
+  <section id="view-wordpack" class="view" hidden>
+    <div class="pack-stage">
+      <p class="read-kicker">PACK OPENING</p>
+      <div class="pack" id="pack">
+        <div class="pack-foil"></div>
+        <div class="pack-seal" id="packSeal">◀ 撕开封条 ⟶</div>
+        <div class="pack-body"><span>WORDS</span><small>5 CARDS</small></div>
+      </div>
+      <button type="button" class="btn btn-primary btn-lg" id="openPack">开始抽卡</button>
+      <p class="pack-hint" id="packHint">每包 5 张单词卡，全部翻完后自动进收藏夹</p>
     </div>
-  </div>
+
+    <div class="flip-grid" id="flipGrid"></div>
+    <div class="pack-done" id="packDone" hidden>
+      <p class="lead-in">已加入收藏夹</p>
+      <button type="button" class="btn btn-primary" id="toBook">去收藏夹</button>
+    </div>
+  </section>
+
+  <!-- 收藏夹 -->
+  <section id="view-wordbook" class="view" hidden>
+    <div class="read-head">
+      <div>
+        <p class="read-kicker">COLLECTION</p>
+        <h2 class="read-title">单词收藏夹</h2>
+        <p class="read-subtitle" id="bookMeta">—</p>
+      </div>
+      <div class="read-chips">
+        <button type="button" class="btn btn-primary" id="startStudy">开始背诵</button>
+      </div>
+    </div>
+    <div id="bookList" class="book-list"></div>
+    <p class="empty" id="bookEmpty" hidden>还没有抽到单词，先去抽一包吧。</p>
+  </section>
+
+  <!-- 背诵 -->
+  <section id="view-wordstudy" class="view" hidden>
+    <div class="study-wrap" id="studyWrap">
+      <div class="study-bar"><span id="studyProgress">1 / 5</span><span id="studyScore">+0 分</span></div>
+      <p class="word-step">选择正确的中文释义</p>
+      <div class="study-word" id="studyWord">—</div>
+      <div class="study-pos" id="studyPos">—</div>
+      <div class="study-opts" id="studyOpts"></div>
+      <p class="study-feedback" id="studyFeedback"></p>
+    </div>
+    <div class="study-done" id="studyDone" hidden>
+      <p class="read-kicker">SESSION COMPLETE</p>
+      <h2 class="read-title" id="doneTitle">本轮完成</h2>
+      <p class="read-subtitle" id="doneStat">—</p>
+      <button type="button" class="btn btn-primary" id="backBook">返回收藏夹</button>
+    </div>
+  </section>
 
   <!-- 阅读 -->
   <section id="view-read" class="view" hidden>
@@ -567,7 +609,7 @@
   </div>
 </div>
 
-<script src="/ranks.js?v=11181629"></script>
-<script src="/app.js?v=11181629"></script>
+<script src="/ranks.js?v=11181639"></script>
+<script src="/app.js?v=11181639"></script>
 </body>
 </html>

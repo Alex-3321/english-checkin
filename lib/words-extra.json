@@ -1,0 +1,402 @@
+{
+ "1": {
+  "phrase": "abandon a plan",
+  "phrase_zh": "放弃计划",
+  "ex2": "They abandoned the plan after the storm."
+ },
+ "2": {
+  "phrase": "ability to learn",
+  "phrase_zh": "学习能力",
+  "ex2": "He has a great ability to learn new things."
+ },
+ "3": {
+  "phrase": "absorb knowledge",
+  "phrase_zh": "吸收知识",
+  "ex2": "Reading is a good way to absorb knowledge."
+ },
+ "4": {
+  "phrase": "abstract concept",
+  "phrase_zh": "抽象概念",
+  "ex2": "Mathematics often deals with abstract concepts."
+ },
+ "5": {
+  "phrase": "academic research",
+  "phrase_zh": "学术研究",
+  "ex2": "She is working on an academic research project."
+ },
+ "6": {
+  "phrase": "access to information",
+  "phrase_zh": "获取信息",
+  "ex2": "The library provides access to a wide range of information."
+ },
+ "7": {
+  "phrase": "accompany someone",
+  "phrase_zh": "陪伴某人",
+  "ex2": "I will accompany my friend to the airport."
+ },
+ "8": {
+  "phrase": "accomplish a goal",
+  "phrase_zh": "实现目标",
+  "ex2": "He accomplished his goal of running a marathon."
+ },
+ "9": {
+  "phrase": "accurate measurement",
+  "phrase_zh": "准确测量",
+  "ex2": "The scientist took accurate measurements of the temperature."
+ },
+ "10": {
+  "phrase": "achieve success",
+  "phrase_zh": "取得成功",
+  "ex2": "She achieved success in her career after years of hard work."
+ },
+ "11": {
+  "phrase": "acknowledge failure",
+  "phrase_zh": "承认失败",
+  "ex2": "He acknowledged his failure and promised to improve."
+ },
+ "12": {
+  "phrase": "adapt to change",
+  "phrase_zh": "适应变化",
+  "ex2": "She quickly adapted to the new environment."
+ },
+ "13": {
+  "phrase": "adequate preparation",
+  "phrase_zh": "充分的准备",
+  "ex2": "Adequate preparation is essential for a successful presentation."
+ },
+ "14": {
+  "phrase": "adjust to the schedule",
+  "phrase_zh": "调整到日程安排",
+  "ex2": "He had to adjust to the schedule change due to the flight delay."
+ },
+ "15": {
+  "phrase": "admire the courage",
+  "phrase_zh": "钦佩勇气",
+  "ex2": "We all admire her courage in facing the challenge."
+ },
+ "16": {
+  "phrase": "adopt a new approach",
+  "phrase_zh": "采用新方法",
+  "ex2": "The company decided to adopt a new approach to increase efficiency."
+ },
+ "17": {
+  "phrase": "advance the project",
+  "phrase_zh": "推进项目",
+  "ex2": "They are working hard to advance the project on schedule."
+ },
+ "18": {
+  "phrase": "take advantage of",
+  "phrase_zh": "利用",
+  "ex2": "She took advantage of the opportunity to learn a new language."
+ },
+ "19": {
+  "phrase": "affect the decision",
+  "phrase_zh": "影响决定",
+  "ex2": "The weather forecast affected the decision to cancel the trip."
+ },
+ "20": {
+  "phrase": "afford the cost",
+  "phrase_zh": "负担得起费用",
+  "ex2": "He couldn't afford the cost of the new car."
+ },
+ "21": {
+  "phrase": "be aggressive",
+  "phrase_zh": "表现出积极性",
+  "ex2": "He is aggressive in his approach to problem-solving."
+ },
+ "22": {
+  "phrase": "alter one's opinion",
+  "phrase_zh": "改变观点",
+  "ex2": "She altered her opinion after hearing the new evidence."
+ },
+ "23": {
+  "phrase": "have great ambition",
+  "phrase_zh": "有伟大的抱负",
+  "ex2": "He has great ambition to become a successful entrepreneur."
+ },
+ "24": {
+  "phrase": "analyze data",
+  "phrase_zh": "分析数据",
+  "ex2": "The team analyzed data to identify trends."
+ },
+ "25": {
+  "phrase": "ancient ruins",
+  "phrase_zh": "古代遗迹",
+  "ex2": "Visitors were amazed by the ancient ruins."
+ },
+ "26": {
+  "phrase": "annual report",
+  "phrase_zh": "年度报告",
+  "ex2": "The company released its annual report last week."
+ },
+ "27": {
+  "phrase": "cope with anxiety",
+  "phrase_zh": "应对焦虑",
+  "ex2": "She learned to cope with anxiety through meditation."
+ },
+ "28": {
+  "phrase": "apparent truth",
+  "phrase_zh": "明显的真相",
+  "ex2": "The apparent truth is that he was not responsible for the accident."
+ },
+ "29": {
+  "phrase": "appeal to the public",
+  "phrase_zh": "呼吁公众",
+  "ex2": "The charity appealed to the public for donations."
+ },
+ "30": {
+  "phrase": "appreciate art",
+  "phrase_zh": "欣赏艺术",
+  "ex2": "He appreciates art and often visits museums."
+ },
+ "31": {
+  "phrase": "approach to",
+  "phrase_zh": "方法；途径",
+  "ex2": "They discussed various approaches to solving the problem."
+ },
+ "32": {
+  "phrase": "approve of",
+  "phrase_zh": "批准；赞成",
+  "ex2": "The board approved of the new project."
+ },
+ "33": {
+  "phrase": "argue with",
+  "phrase_zh": "与...争论；与...争执",
+  "ex2": "He argued with his friend about the movie they should watch."
+ },
+ "34": {
+  "phrase": "arise from",
+  "phrase_zh": "由...产生；起因于",
+  "ex2": "The conflict arose from a misunderstanding."
+ },
+ "35": {
+  "phrase": "assess the situation",
+  "phrase_zh": "评估情况",
+  "ex2": "The expert assessed the situation and made a recommendation."
+ },
+ "36": {
+  "phrase": "assign a task",
+  "phrase_zh": "分配任务",
+  "ex2": "She assigned a task to each team member."
+ },
+ "37": {
+  "phrase": "assist in",
+  "phrase_zh": "帮助；协助",
+  "ex2": "He assisted in organizing the event."
+ },
+ "38": {
+  "phrase": "assume responsibility",
+  "phrase_zh": "承担责任",
+  "ex2": "She assumed responsibility for the project."
+ },
+ "39": {
+  "phrase": "attain success",
+  "phrase_zh": "获得成功",
+  "ex2": "He attained success through hard work and determination."
+ },
+ "40": {
+  "phrase": "change one's attitude",
+  "phrase_zh": "改变态度",
+  "ex2": "She decided to change her attitude towards her job."
+ },
+ "41": {
+  "phrase": "attract attention",
+  "phrase_zh": "吸引注意",
+  "ex2": "The colorful banners attract attention to the sale."
+ },
+ "42": {
+  "phrase": "available resources",
+  "phrase_zh": "可用资源",
+  "ex2": "We need to identify all available resources for the project."
+ },
+ "43": {
+  "phrase": "average performance",
+  "phrase_zh": "平均表现",
+  "ex2": "His average performance in the exam was quite good."
+ },
+ "44": {
+  "phrase": "aware of the risk",
+  "phrase_zh": "意识到风险",
+  "ex2": "She was aware of the risk and took precautions."
+ },
+ "45": {
+  "phrase": "balance between work and life",
+  "phrase_zh": "工作与生活之间的平衡",
+  "ex2": "Finding a balance between work and life is important."
+ },
+ "46": {
+  "phrase": "barrier to progress",
+  "phrase_zh": "进步的障碍",
+  "ex2": "Language is a barrier to progress in international communication."
+ },
+ "47": {
+  "phrase": "benefit from the experience",
+  "phrase_zh": "从经验中受益",
+  "ex2": "He benefited from the experience of working with a team."
+ },
+ "48": {
+  "phrase": "brief introduction",
+  "phrase_zh": "简短介绍",
+  "ex2": "She gave a brief introduction to the new product."
+ },
+ "49": {
+  "phrase": "capable of handling",
+  "phrase_zh": "能够处理",
+  "ex2": "She is capable of handling the difficult situation."
+ },
+ "50": {
+  "phrase": "capacity for learning",
+  "phrase_zh": "学习能力",
+  "ex2": "The course is designed to enhance the capacity for learning."
+ },
+ "51": {
+  "phrase": "challenge a decision",
+  "phrase_zh": "挑战决定",
+  "ex2": "He challenged the decision to lay off employees."
+ },
+ "52": {
+  "phrase": "character of a person",
+  "phrase_zh": "某人的性格",
+  "ex2": "Her character is marked by determination and kindness."
+ },
+ "53": {
+  "phrase": "claim responsibility",
+  "phrase_zh": "承担责任",
+  "ex2": "He claimed responsibility for the project's success."
+ },
+ "54": {
+  "phrase": "complex problem",
+  "phrase_zh": "复杂问题",
+  "ex2": "The complex problem requires a creative solution."
+ },
+ "55": {
+  "phrase": "concentrate on study",
+  "phrase_zh": "专注于学习",
+  "ex2": "She concentrates on her study during her free time."
+ },
+ "56": {
+  "phrase": "conclude a meeting",
+  "phrase_zh": "结束会议",
+  "ex2": "They concluded the meeting with a clear action plan."
+ },
+ "57": {
+  "phrase": "conduct a research",
+  "phrase_zh": "进行研究",
+  "ex2": "The team conducted a research on renewable energy sources."
+ },
+ "58": {
+  "phrase": "confident in oneself",
+  "phrase_zh": "自信",
+  "ex2": "He is confident in his ability to succeed."
+ },
+ "59": {
+  "phrase": "confirm an appointment",
+  "phrase_zh": "确认预约",
+  "ex2": "Please confirm the appointment by tomorrow."
+ },
+ "60": {
+  "phrase": "consider an option",
+  "phrase_zh": "考虑一个选项",
+  "ex2": "We need to consider all available options before making a decision."
+ },
+ "61": {
+  "phrase": "consist of",
+  "phrase_zh": "由……组成",
+  "ex2": "The team consists of members from different countries."
+ },
+ "62": {
+  "phrase": "constant effort",
+  "phrase_zh": "持续的努力",
+  "ex2": "Only constant effort can lead to success."
+ },
+ "63": {
+  "phrase": "contribute to",
+  "phrase_zh": "贡献；促成",
+  "ex2": "Her hard work contributed to the team's victory."
+ },
+ "64": {
+  "phrase": "convince someone of something",
+  "phrase_zh": "说服某人相信某事",
+  "ex2": "He tried to convince her of the importance of the project."
+ },
+ "65": {
+  "phrase": "crucial moment",
+  "phrase_zh": "关键时刻",
+  "ex2": "The crucial moment came when the game was tied."
+ },
+ "66": {
+  "phrase": "curious about",
+  "phrase_zh": "对……好奇",
+  "ex2": "She is curious about the new technology."
+ },
+ "67": {
+  "phrase": "decline invitation",
+  "phrase_zh": "拒绝邀请",
+  "ex2": "He politely declined the invitation."
+ },
+ "68": {
+  "phrase": "define something",
+  "phrase_zh": "定义某物",
+  "ex2": "Can you define what a smartphone is?"
+ },
+ "69": {
+  "phrase": "demonstrate a product",
+  "phrase_zh": "演示产品",
+  "ex2": "The salesperson demonstrated the new phone to the customers."
+ },
+ "70": {
+  "phrase": "depend on someone",
+  "phrase_zh": "依赖某人",
+  "ex2": "The success of the project depends on everyone's cooperation."
+ },
+ "71": {
+  "phrase": "derive from",
+  "phrase_zh": "源自于",
+  "ex2": "The story derives from an ancient legend."
+ },
+ "72": {
+  "phrase": "despite the fact",
+  "phrase_zh": "尽管如此",
+  "ex2": "She passed the exam despite the fact that she was sick."
+ },
+ "73": {
+  "phrase": "determine the outcome",
+  "phrase_zh": "决定结果",
+  "ex2": "The final decision determines the outcome of the project."
+ },
+ "74": {
+  "phrase": "devote oneself to",
+  "phrase_zh": "致力于",
+  "ex2": "He devotes himself to his studies every day."
+ },
+ "75": {
+  "phrase": "distinguish between",
+  "phrase_zh": "区分",
+  "ex2": "It's important to distinguish between right and wrong."
+ },
+ "76": {
+  "phrase": "efficient in doing",
+  "phrase_zh": "在...方面高效",
+  "ex2": "She is efficient in managing her time."
+ },
+ "77": {
+  "phrase": "emerge as",
+  "phrase_zh": "成为",
+  "ex2": "He emerged as a leader in the group."
+ },
+ "78": {
+  "phrase": "emphasize the importance",
+  "phrase_zh": "强调重要性",
+  "ex2": "We need to emphasize the importance of teamwork."
+ },
+ "79": {
+  "phrase": "encounter difficulties",
+  "phrase_zh": "遇到困难",
+  "ex2": "They encountered difficulties in completing the task."
+ },
+ "80": {
+  "phrase": "ensure success",
+  "phrase_zh": "确保成功",
+  "ex2": "We need to ensure success by planning carefully."
+ }
+}

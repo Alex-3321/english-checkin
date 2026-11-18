@@ -165,6 +165,9 @@ db.exec(`
   const ucols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   if (!ucols.includes('is_hidden')) db.exec('ALTER TABLE users ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0');
   if (!ucols.includes('current_token')) db.exec('ALTER TABLE users ADD COLUMN current_token TEXT');
+  const uwcols = db.prepare('PRAGMA table_info(user_words)').all().map((c) => c.name);
+  if (uwcols.length && !uwcols.includes('pack_no')) db.exec('ALTER TABLE user_words ADD COLUMN pack_no INTEGER NOT NULL DEFAULT 0');
+
   const qcols = db.prepare('PRAGMA table_info(read_quota)').all().map((c) => c.name);
   if (qcols.length && !qcols.includes('current_seq')) db.exec('ALTER TABLE read_quota ADD COLUMN current_seq INTEGER NOT NULL DEFAULT 0');
   if (qcols.length && !qcols.includes('current_batch')) db.exec('ALTER TABLE read_quota ADD COLUMN current_batch INTEGER NOT NULL DEFAULT 0');
@@ -1084,16 +1087,48 @@ async function handleApi(req, res, url) {
       picked.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
     }
     if (!picked.length) return sendJSON(res, 429, { error: '词库已抽完' });
+    const packNo = st.draws + 1;
     for (const w of picked) {
-      db.prepare('INSERT OR IGNORE INTO user_words (user_id,word_id,day,learned) VALUES (?,?,?,0)').run(me.id, w.id, day);
+      db.prepare('INSERT OR IGNORE INTO user_words (user_id,word_id,day,learned,pack_no) VALUES (?,?,?,0,?)').run(me.id, w.id, day, packNo);
+      db.prepare('UPDATE user_words SET pack_no=? WHERE user_id=? AND word_id=? AND pack_no=0').run(packNo, me.id, w.id);
     }
     db.prepare('INSERT INTO word_daily (user_id,day,draws,points) VALUES (?,?,1,?) ON CONFLICT(user_id,day) DO UPDATE SET draws=draws+1, points=points+?')
       .run(me.id, day, WORD_DRAW_POINTS, WORD_DRAW_POINTS);
     db.prepare('UPDATE users SET total_score = total_score + ? WHERE id=?').run(WORD_DRAW_POINTS, me.id);
     return sendJSON(res, 200, {
-      words: picked.map((w) => ({ id: w.id, w: w.w, pos: w.pos, zh: w.zh, ex: w.ex, options: wordOptions(w), learned: false })),
+      pack_no: packNo,
+      words: picked.map((w) => ({
+        id: w.id, w: w.w, pos: w.pos, zh: w.zh, ex: w.ex, ex2: w.ex2, phrase: w.phrase, phrase_zh: w.phrase_zh,
+        options: wordOptions(w), learned: false,
+      })),
       gained: WORD_DRAW_POINTS,
       state: wordState(me.id, day),
+    });
+  }
+
+
+  if (p === '/api/words/collection' && method === 'GET') {
+    const rows = db.prepare(`SELECT word_id, day, pack_no, learned FROM user_words WHERE user_id=? ORDER BY day DESC, pack_no DESC, word_id ASC`).all(me.id);
+    const packs = [];
+    const map = new Map();
+    for (const r of rows) {
+      const key = `${r.day}#${r.pack_no}`;
+      if (!map.has(key)) {
+        const p = { day: r.day, pack_no: r.pack_no, words: [] };
+        map.set(key, p);
+        packs.push(p);
+      }
+      const w = WORDS[r.word_id - 1];
+      if (w) map.get(key).words.push({ id: w.id, w: w.w, pos: w.pos, zh: w.zh, phrase: w.phrase, learned: !!r.learned });
+    }
+    return sendJSON(res, 200, { packs, total: rows.length, learned: rows.filter((r) => r.learned).length });
+  }
+
+  if (p === '/api/words/study' && method === 'GET') {
+    const rows = db.prepare('SELECT word_id FROM user_words WHERE user_id=? AND learned=0 ORDER BY day DESC, pack_no DESC, word_id ASC LIMIT 20').all(me.id);
+    const words = rows.map((r) => WORDS[r.word_id - 1]).filter(Boolean);
+    return sendJSON(res, 200, {
+      words: words.map((w) => ({ id: w.id, w: w.w, pos: w.pos, zh: w.zh, phrase: w.phrase, phrase_zh: w.phrase_zh, ex: w.ex, options: wordOptions(w) })),
     });
   }
 
