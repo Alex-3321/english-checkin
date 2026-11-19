@@ -179,8 +179,8 @@ db.exec(`
     spell_awarded INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, word_id)
   )`);
-  const ucols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
-  if (ucols.length && !ucols.includes('bonus_points')) db.exec('ALTER TABLE users ADD COLUMN bonus_points INTEGER NOT NULL DEFAULT 0');
+  const usercols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  if (usercols.length && !usercols.includes('bonus_points')) db.exec('ALTER TABLE users ADD COLUMN bonus_points INTEGER NOT NULL DEFAULT 0');
 
   const uwcols = db.prepare('PRAGMA table_info(user_words)').all().map((c) => c.name);
   if (uwcols.length && !uwcols.includes('pack_no')) db.exec('ALTER TABLE user_words ADD COLUMN pack_no INTEGER NOT NULL DEFAULT 1');
