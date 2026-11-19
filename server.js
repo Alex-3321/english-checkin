@@ -179,6 +179,9 @@ db.exec(`
     spell_awarded INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, word_id)
   )`);
+  const ucols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  if (ucols.length && !ucols.includes('bonus_points')) db.exec('ALTER TABLE users ADD COLUMN bonus_points INTEGER NOT NULL DEFAULT 0');
+
   const uwcols = db.prepare('PRAGMA table_info(user_words)').all().map((c) => c.name);
   if (uwcols.length && !uwcols.includes('pack_no')) db.exec('ALTER TABLE user_words ADD COLUMN pack_no INTEGER NOT NULL DEFAULT 1');
   if (uwcols.length && !uwcols.includes('stage')) db.exec('ALTER TABLE user_words ADD COLUMN stage INTEGER NOT NULL DEFAULT 0');
@@ -1032,7 +1035,7 @@ async function handleApi(req, res, url) {
   if (p === '/api/leaderboard' && method === 'GET') {
     const rows = db.prepare(`
       SELECT u.id, u.student_id, u.name, u.class_name, u.avatar, u.total_score,
-             COALESCE(SUM(r.points),0) AS score,
+             COALESCE(SUM(r.points),0) + COALESCE(u.bonus_points,0) AS score,
              SUM(CASE r.type WHEN 'checkin' THEN 1 ELSE 0 END) AS checkin_days,
              SUM(CASE r.type WHEN 'upload' THEN 1 ELSE 0 END) AS upload_days
       FROM users u LEFT JOIN records r ON r.user_id=u.id AND r.created_at>=? AND r.deleted_at IS NULL
